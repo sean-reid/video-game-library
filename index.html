@@ -2441,6 +2441,43 @@ const saveGames = (games) => {
 };
 
 // =============================================================================
+// RAWG INTEGRATION
+// NOTE: Key is inline because this is a personal app on public GitHub Pages.
+// Worst case if scraped: someone burns your 20k/month free quota → rotate.
+// If/when that matters, move behind a Cloudflare Worker.
+// =============================================================================
+const RAWG_KEY = '3be9c7521f9649109c0216049bcf7049';
+const RAWG_BASE = 'https://api.rawg.io/api';
+
+const yearOf = (released) => {
+  if (!released) return null;
+  const y = parseInt(String(released).slice(0, 4), 10);
+  return isNaN(y) ? null : y;
+};
+
+// Search RAWG for a game by title, pick best match (closest year if available)
+const searchRawg = async (title, year) => {
+  const q = encodeURIComponent(title);
+  const url = `${RAWG_BASE}/games?key=${RAWG_KEY}&search=${q}&page_size=5&search_precise=true`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`RAWG ${res.status}`);
+  const data = await res.json();
+  if (!data.results?.length) return null;
+
+  let results = [...data.results];
+  if (year) {
+    results.sort((a, b) => {
+      const ay = yearOf(a.released);
+      const by = yearOf(b.released);
+      const ad = ay ? Math.abs(ay - year) : 999;
+      const bd = by ? Math.abs(by - year) : 999;
+      return ad - bd;
+    });
+  }
+  return results[0];
+};
+
+// =============================================================================
 // ICONS
 // =============================================================================
 const Icon = ({ name, className = 'w-5 h-5' }) => {
@@ -2469,12 +2506,24 @@ const Icon = ({ name, className = 'w-5 h-5' }) => {
 const GameCard = ({ game, onClick }) => {
   const tier = game.rating ? TIER(game.rating.total) : null;
   const isTop50 = game.topListRank != null;
+  const hasCover = !!game.coverImage;
   return (
     <button
       onClick={onClick}
       className="relative group text-left w-full aspect-[3/4] rounded-2xl overflow-hidden grain"
-      style={{ background: gradientFor(game) }}
+      style={hasCover ? { background: '#0a0a0c' } : { background: gradientFor(game) }}
     >
+      {hasCover && (
+        <img
+          src={game.coverImage}
+          alt=""
+          loading="lazy"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+      )}
+      {hasCover && (
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/20" />
+      )}
       <div className="absolute inset-0 flex flex-col justify-between p-3">
         <div className="flex items-start justify-between gap-2">
           {isTop50 && (
@@ -2715,7 +2764,7 @@ const EmptyState = ({ title, subtitle }) => (
 // =============================================================================
 // LIBRARY SCREEN
 // =============================================================================
-const LibraryScreen = ({ games, onSelect, section, setSection }) => {
+const LibraryScreen = ({ games, onSelect, section, setSection, enrichStatus }) => {
   const [query, setQuery] = useState('');
 
   const counts = useMemo(() => ({
@@ -2737,7 +2786,15 @@ const LibraryScreen = ({ games, onSelect, section, setSection }) => {
     <div className="screen-enter">
       <div className="pt-safe">
         <div className="px-4 pt-5 pb-1 flex items-end justify-between">
-          <h1 className="serif text-[40px] leading-none">Library</h1>
+          <div>
+            <h1 className="serif text-[40px] leading-none">Library</h1>
+            {enrichStatus?.active && (
+              <div className="text-[11px] text-zinc-500 mt-1 flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-gold animate-pulse" />
+                Fetching covers · {enrichStatus.done} of {enrichStatus.total}
+              </div>
+            )}
+          </div>
           <button className="glass-light rounded-full p-2.5" aria-label="Add game">
             <Icon name="plus" className="w-5 h-5" />
           </button>
@@ -2846,8 +2903,11 @@ const GameDetailScreen = ({ game, onBack }) => {
 
   return (
     <div className="screen-enter pb-32">
-      <div className="relative w-full aspect-[4/3] grain" style={{ background: gradientFor(game) }}>
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-ink-950" />
+      <div className="relative w-full aspect-[4/3] grain" style={game.coverImage ? { background: '#0a0a0c' } : { background: gradientFor(game) }}>
+        {game.coverImage && (
+          <img src={game.coverImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/30 to-ink-950" />
         <div className="absolute inset-0 flex flex-col pt-safe">
           <div className="flex items-center justify-between px-4 pt-3">
             <button onClick={onBack} className="glass-light rounded-full p-2.5">
@@ -3020,8 +3080,50 @@ const App = () => {
   const [tab, setTab] = useState('library');
   const [section, setSection] = useState('top50');
   const [selectedId, setSelectedId] = useState(null);
+  const [enrichStatus, setEnrichStatus] = useState({ active: false, done: 0, total: 0 });
+  const enrichStartedRef = useRef(false);
 
   useEffect(() => { saveGames(games); }, [games]);
+
+  // RAWG enrichment — fires once on mount, fetches metadata for games
+  // that haven't been checked yet. Skip Rumored (too vague to search well).
+  useEffect(() => {
+    if (enrichStartedRef.current) return;
+    enrichStartedRef.current = true;
+
+    let cancelled = false;
+    const snapshot = games;
+    const toEnrich = snapshot.filter(g => !g.rawgChecked && g.state !== 'rumored');
+    if (toEnrich.length === 0) return;
+
+    setEnrichStatus({ active: true, done: 0, total: toEnrich.length });
+
+    (async () => {
+      let done = 0;
+      for (const g of toEnrich) {
+        if (cancelled) break;
+        try {
+          const match = await searchRawg(g.title, g.year);
+          const patch = match ? {
+            coverImage: match.background_image || null,
+            rawgId: match.id,
+            rawgReleased: match.released || null,
+            rawgChecked: true,
+          } : { rawgChecked: true };
+          setGames(prev => prev.map(x => x.id === g.id ? { ...x, ...patch } : x));
+        } catch (e) {
+          console.warn('RAWG miss for', g.title, e.message);
+          // Don't mark checked — let it retry next session
+        }
+        done++;
+        setEnrichStatus({ active: true, done, total: toEnrich.length });
+        await new Promise(r => setTimeout(r, 60)); // polite pacing
+      }
+      setEnrichStatus({ active: false, done, total: toEnrich.length });
+    })();
+
+    return () => { cancelled = true; };
+  }, []);
 
   const selected = useMemo(() => games.find(g => g.id === selectedId), [games, selectedId]);
 
@@ -3037,6 +3139,7 @@ const App = () => {
               onSelect={g => setSelectedId(g.id)}
               section={section}
               setSection={setSection}
+              enrichStatus={enrichStatus}
             />
           )}
           {tab === 'news' && <NewsScreen />}
