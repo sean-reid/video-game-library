@@ -4543,8 +4543,8 @@ const PodcastCard = ({ pod, onPlay, onViewAll }) => {
               {freshLabel}
             </div>
           </div>
-          <div className="serif text-[15px] text-white leading-tight mt-1">{pod.show}</div>
-          <div className="text-[12px] text-zinc-400 mt-1.5 line-clamp-2">{latest.title}</div>
+          <div className="serif text-[16px] text-white leading-tight mt-1 line-clamp-2">{latest.title}</div>
+          <div className="text-[11px] uppercase tracking-wider text-zinc-500 font-medium mt-1.5">{pod.show}</div>
           <div className="flex items-center gap-2 mt-2">
             <button
               onClick={() => onPlay(pod, latest, 'youtube')}
