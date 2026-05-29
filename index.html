@@ -2420,24 +2420,91 @@ const gradientFor = (game) => {
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+const MONTH_TO_NUM = {
+  january: 1, jan: 1,
+  february: 2, feb: 2,
+  march: 3, mar: 3,
+  april: 4, apr: 4,
+  may: 5,
+  june: 6, jun: 6,
+  july: 7, jul: 7,
+  august: 8, aug: 8,
+  september: 9, sep: 9, sept: 9,
+  october: 10, oct: 10,
+  november: 11, nov: 11,
+  december: 12, dec: 12,
+};
+const SEASON_OFFSETS = { spring: 300, summer: 600, fall: 900, autumn: 900, winter: 1200 };
+
 const parseExpected = (s) => {
   if (!s) return { sortKey: 9999, label: 'TBD' };
   if (s === 'Available') return { sortKey: 0, label: 'Available now' };
+
+  // "M/D/YYYY" or "M/D/YY"
+  const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (mdy) {
+    const m = parseInt(mdy[1], 10), d = parseInt(mdy[2], 10);
+    let y = parseInt(mdy[3], 10);
+    if (y < 100) y += 2000;
+    return { sortKey: y * 10000 + m * 100 + d, label: `${MONTHS[m-1]} ${d}, ${y}` };
+  }
+  // "M/D" — assume 2026 for legacy seed compatibility
   const md = s.match(/^(\d{1,2})\/(\d{1,2})$/);
   if (md) {
     const m = parseInt(md[1], 10), d = parseInt(md[2], 10);
     return { sortKey: 2026 * 10000 + m * 100 + d, label: `${MONTHS[m-1]} ${d}, 2026` };
   }
-  const h1 = s.match(/^H(\d)\s+(\d{4})$/);
-  if (h1) return { sortKey: parseInt(h1[2]) * 10000 + (h1[1] === '1' ? 300 : 900), label: s };
-  const season = s.match(/^(Spring|Summer|Fall|Winter)\s+(\d{4})$/);
-  if (season) {
-    const offsets = { Spring: 300, Summer: 600, Fall: 900, Winter: 1200 };
-    return { sortKey: parseInt(season[2]) * 10000 + offsets[season[1]], label: s };
+
+  // "Month DD, YYYY" / "Month DDth, YYYY" / "Mon DD YYYY"
+  const mdyName = s.match(/^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/);
+  if (mdyName) {
+    const m = MONTH_TO_NUM[mdyName[1].toLowerCase()];
+    if (m) {
+      const d = parseInt(mdyName[2], 10);
+      const y = parseInt(mdyName[3], 10);
+      return { sortKey: y * 10000 + m * 100 + d, label: s };
+    }
   }
+
+  // "Month YYYY" or "Season YYYY" — e.g., "February 2027", "Fall 2026"
+  const monthOrSeason = s.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (monthOrSeason) {
+    const word = monthOrSeason[1].toLowerCase();
+    const y = parseInt(monthOrSeason[2], 10);
+    if (MONTH_TO_NUM[word] != null) {
+      return { sortKey: y * 10000 + MONTH_TO_NUM[word] * 100, label: s };
+    }
+    if (SEASON_OFFSETS[word] != null) {
+      return { sortKey: y * 10000 + SEASON_OFFSETS[word], label: s };
+    }
+  }
+
+  // "H1 YYYY" / "H2 YYYY"
+  const h = s.match(/^H(\d)\s+(\d{4})$/);
+  if (h) return { sortKey: parseInt(h[2]) * 10000 + (h[1] === '1' ? 300 : 900), label: s };
+
+  // "Q1 YYYY" through "Q4 YYYY"
+  const q = s.match(/^Q([1-4])\s+(\d{4})$/);
+  if (q) {
+    const qn = parseInt(q[1], 10);
+    const y = parseInt(q[2], 10);
+    return { sortKey: y * 10000 + ((qn - 1) * 300 + 200), label: s };
+  }
+
+  // Year only "YYYY"
   const y = s.match(/^(\d{4})$/);
   if (y) return { sortKey: parseInt(y[1]) * 10000 + 9999, label: s };
+
   return { sortKey: 9999, label: s };
+};
+
+// Effective sort key for upcoming games — falls back to game.year when
+// the expectedDate string doesn't parse, so a free-form date plus a year
+// still lands in the right bucket.
+const upcomingSortKey = (game) => {
+  const { sortKey } = parseExpected(game.expectedDate);
+  if (sortKey === 9999 && game.year) return game.year * 10000 + 9999;
+  return sortKey;
 };
 
 const STORAGE_KEY = 'vgl.games.v4';
@@ -3005,20 +3072,28 @@ const PlayingView = ({ games, onSelect }) => {
 const UpcomingView = ({ games, onSelect }) => {
   const groups = useMemo(() => {
     const list = games.filter(g => g.state === 'upcoming');
-    list.sort((a, b) => parseExpected(a.expectedDate).sortKey - parseExpected(b.expectedDate).sortKey);
+    list.sort((a, b) => upcomingSortKey(a) - upcomingSortKey(b));
+
+    // Build year buckets dynamically — any year that has games shows up,
+    // sorted chronologically. "Available now" goes first; "TBD" goes last.
     const buckets = {};
     list.forEach(g => {
-      const sk = parseExpected(g.expectedDate).sortKey;
+      const sk = upcomingSortKey(g);
       let key;
       if (sk === 0) key = 'Available now';
-      else if (sk < 20270000) key = '2026';
-      else if (sk < 20280000) key = '2027';
-      else key = 'Later';
+      else if (sk < 10000) key = 'TBD';
+      else key = String(Math.floor(sk / 10000));
       (buckets[key] = buckets[key] || []).push(g);
     });
-    return ['Available now', '2026', '2027', 'Later']
-      .filter(k => buckets[k])
-      .map(k => ({ key: k, games: buckets[k] }));
+
+    // Order: Available now, then ascending years, then TBD
+    const yearKeys = Object.keys(buckets).filter(k => /^\d+$/.test(k)).sort();
+    const ordered = [];
+    if (buckets['Available now']) ordered.push('Available now');
+    ordered.push(...yearKeys);
+    if (buckets['TBD']) ordered.push('TBD');
+
+    return ordered.map(k => ({ key: k, games: buckets[k] }));
   }, [games]);
 
   return (
