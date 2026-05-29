@@ -2467,6 +2467,25 @@ const yearOf = (released) => {
   return isNaN(y) ? null : y;
 };
 
+// Manual cover overrides for games RAWG mis-matched or that need a better image.
+// Applied at READ time, so no re-enrichment of localStorage is required.
+const COVER_OVERRIDES = {
+  'spider-man-miles-morales-2020':  { coverImage: 'https://media.rawg.io/media/games/048/048b46cdc66cbc7e235e1f359c2a77ec.jpg' },
+  'the-last-of-us-part-i-2013':     { coverImage: 'https://media.rawg.io/media/games/71d/71df9e759b2246f9769126c98ac997fc.jpg' },
+  'pok-mon-scarlet-2022':           { coverImage: 'https://media.rawg.io/media/games/5ab/5abb8e4af55eb8c867410c3a740355b9.jpg' },
+  'pok-mon-soul-silver-2009':       { coverImage: 'https://media.rawg.io/media/games/a9b/a9b87910722fd2ce7d14d8f9a7fa4d5a.jpg' },
+  'pokopia-2026':                   { coverImage: 'https://media.rawg.io/media/games/67a/67a161425e620772ba69c3caa8f48a95.jpg' },
+  'sonic-x-shadow-generations-2024':{ coverImage: 'https://media.rawg.io/media/screenshots/797/797fc5d525fd1ec461268f43aad06dfd.jpg' },
+  'mixtape':                        { coverImage: 'https://media.rawg.io/media/games/a57/a571fcbc2b2ef30fb3e13a4272ef3a93.jpeg' },
+  'marvel-1943-rise-of-hydra':      { coverImage: 'https://media.rawg.io/media/screenshots/75b/75b5b95614f7a958a5e7171454d53fd1.jpg' },
+  'tides-of-annihilation':          { coverImage: 'https://media.rawg.io/media/screenshots/9f2/9f20a2fa3ecdd23aaa67b23a3f255c9a.jpg' },
+  // RAWG has no usable cover yet for these — they'll keep their gradient until announced:
+  // 'the-duskbloods', 'exodus', 'pok-mon-winds-waves'
+};
+
+// Resolve the effective cover URL — manual override beats RAWG match
+const effectiveCover = (game) => COVER_OVERRIDES[game.id]?.coverImage || game.coverImage || null;
+
 // Search RAWG for a game by title, pick best match (closest year if available).
 // Rejects matches whose release year is >5 years off from the target year —
 // this prevents unannounced sequels like "Star Fox 2026" from matching the
@@ -2611,7 +2630,8 @@ const primaryYear = (game) =>
 const GameCard = ({ game, onClick }) => {
   const tier = game.rating ? TIER(game.rating.total) : null;
   const isTop50 = game.topListRank != null;
-  const hasCover = !!game.coverImage;
+  const cover = effectiveCover(game);
+  const hasCover = !!cover;
 
   // TOP-LEFT state tag (consistent across sections)
   let leftBadge = null;
@@ -2675,13 +2695,14 @@ const GameCard = ({ game, onClick }) => {
       style={hasCover ? { background: '#0a0a0c' } : { background: gradientFor(game) }}
     >
       {hasCover && (
-        <img src={game.coverImage} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+        <img src={cover} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
       )}
       {hasCover && (
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/20" />
       )}
-      <div className="absolute inset-0 flex flex-col justify-between p-3">
-        <div className="flex items-start justify-between gap-2">
+      <div className="absolute inset-0 flex flex-col justify-end p-3 gap-1.5">
+        {/* Badges hover above the title strip — top-right reserved for future signals */}
+        <div className="flex items-center justify-between gap-2">
           {leftBadge || <div />}
           {rightBadge || <div />}
         </div>
@@ -3886,11 +3907,12 @@ const GameDetailScreen = ({ game, onBack, onEdit }) => {
   const tier = game.rating ? TIER(game.rating.total) : null;
   const color = tier?.color || '#a1a1aa';
 
+  const cover = effectiveCover(game);
   return (
     <div className="screen-enter pb-32">
-      <div className="relative w-full aspect-[4/3] grain" style={game.coverImage ? { background: '#0a0a0c' } : { background: gradientFor(game) }}>
-        {game.coverImage && (
-          <img src={game.coverImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
+      <div className="relative w-full aspect-[4/3] grain" style={cover ? { background: '#0a0a0c' } : { background: gradientFor(game) }}>
+        {cover && (
+          <img src={cover} alt="" className="absolute inset-0 w-full h-full object-cover" />
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/30 to-ink-950" />
         <div className="absolute inset-0 flex flex-col pt-safe">
