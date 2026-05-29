@@ -2808,8 +2808,12 @@ const ListView = ({ groups, formatRight, formatSubtitle, onSelect, accentColor =
 // SECTION CONTENT
 // =============================================================================
 
-// Cover-Flow style horizontal scroller — center card flat-front,
-// neighbors angled inward and stacked behind. Snap-scroll.
+// Cover-Flow style horizontal scroller — the card whose LEFT edge sits at
+// the row's left edge is the "focused" one (flat, full size). Cards to
+// its right are tilted inward and stacked back. Snap-scroll lands each
+// card flush with the left.
+const COVER_FLOW_LEFT_PAD = 20; // matches px-5 of the section header
+
 const CoverFlowRow = ({ games, onSelect, cardWidth = 168 }) => {
   const containerRef = useRef(null);
   const cardRefs = useRef({});
@@ -2817,19 +2821,21 @@ const CoverFlowRow = ({ games, onSelect, cardWidth = 168 }) => {
   const updateTransforms = () => {
     const container = containerRef.current;
     if (!container) return;
-    const viewportCenterX = container.scrollLeft + container.clientWidth / 2;
+    // Focus point sits at COVER_FLOW_LEFT_PAD from the container's left edge
+    const focusX = container.scrollLeft + COVER_FLOW_LEFT_PAD;
     Object.entries(cardRefs.current).forEach(([id, el]) => {
       if (!el) return;
-      const cardCenterX = el.offsetLeft + el.offsetWidth / 2;
-      const offset = (cardCenterX - viewportCenterX) / el.offsetWidth;
-      const abs = Math.min(Math.abs(offset), 3);
-      const rotateY = Math.max(-50, Math.min(50, -offset * 32));
-      const scale = Math.max(0.74, 1 - abs * 0.11);
-      const translateZ = -Math.min(120, abs * 50);
-      const opacity = Math.max(0.45, 1 - abs * 0.22);
+      // Measure each card's LEFT edge against focus, in card-widths
+      const offset = (el.offsetLeft - focusX) / el.offsetWidth;
+      const abs = Math.min(Math.abs(offset), 4);
+      // Cards to the right (positive offset) tilt to face the focus on their left
+      const rotateY = Math.max(-55, Math.min(55, -offset * 30));
+      const scale = Math.max(0.76, 1 - abs * 0.10);
+      const translateZ = -Math.min(140, abs * 45);
+      const opacity = Math.max(0.4, 1 - abs * 0.22);
       el.style.transform = `translateZ(${translateZ}px) rotateY(${rotateY}deg) scale(${scale})`;
       el.style.opacity = opacity;
-      el.style.zIndex = abs < 0.4 ? 30 : abs < 1.2 ? 20 : 10;
+      el.style.zIndex = abs < 0.3 ? 30 : abs < 1.2 ? 20 : 10;
     });
   };
 
@@ -2845,14 +2851,11 @@ const CoverFlowRow = ({ games, onSelect, cardWidth = 168 }) => {
       });
     };
     container.addEventListener('scroll', onScroll, { passive: true });
-    // First paint may not have layout yet; defer one frame.
     requestAnimationFrame(updateTransforms);
     const ro = new ResizeObserver(() => requestAnimationFrame(updateTransforms));
     ro.observe(container);
     return () => { container.removeEventListener('scroll', onScroll); ro.disconnect(); };
   }, [games]);
-
-  const sidePad = `calc(50% - ${cardWidth / 2}px)`;
 
   return (
     <div
@@ -2861,8 +2864,10 @@ const CoverFlowRow = ({ games, onSelect, cardWidth = 168 }) => {
       style={{
         scrollSnapType: 'x mandatory',
         scrollBehavior: 'smooth',
-        paddingLeft: sidePad,
-        paddingRight: sidePad,
+        scrollPaddingInlineStart: `${COVER_FLOW_LEFT_PAD}px`,
+        paddingLeft: `${COVER_FLOW_LEFT_PAD}px`,
+        // Right padding lets the last card scroll all the way to the focus position
+        paddingRight: `calc(100% - ${cardWidth + COVER_FLOW_LEFT_PAD}px)`,
         paddingTop: '20px',
         paddingBottom: '20px',
         perspective: '1200px',
@@ -2876,10 +2881,10 @@ const CoverFlowRow = ({ games, onSelect, cardWidth = 168 }) => {
             className="shrink-0"
             style={{
               width: `${cardWidth}px`,
-              scrollSnapAlign: 'center',
+              scrollSnapAlign: 'start',
               willChange: 'transform, opacity',
-              transition: 'transform 120ms ease-out, opacity 120ms ease-out',
-              transformOrigin: 'center center',
+              transition: 'transform 140ms ease-out, opacity 140ms ease-out',
+              transformOrigin: 'left center',
             }}
           >
             <GameCard game={g} onClick={() => onSelect(g)} />
