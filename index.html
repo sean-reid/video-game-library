@@ -2607,6 +2607,7 @@ const Icon = ({ name, className = 'w-5 h-5', style, filled }) => {
     download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></>,
     upload:   <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5M12 3v12"/></>,
     close:    <path d="M18 6 6 18M6 6l12 12"/>,
+    play:     <path d="M5 3l14 9-14 9V3z"/>,
   };
   return (
     <svg className={className} style={style} viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -4233,33 +4234,482 @@ const GameDetailScreen = ({ game, onBack, onEdit }) => {
 };
 
 // =============================================================================
-// NEWS SCREEN (Phase 2 placeholder)
+// NEWS — mock data (real feeds plug in via a Cloudflare Worker later)
 // =============================================================================
-const NewsScreen = ({ games, onSelect, tab, onTabChange }) => (
-  <div className="screen-enter pt-safe pb-32">
-    <div className="px-4 pt-5 pb-1">
-      <TitleNav active={tab} onChange={onTabChange} />
-    </div>
 
-    <RecentReleaseBanner games={games} onSelect={onSelect} />
+// Event banners that the user can dismiss after reading
+const MOCK_EVENT_BANNERS = [
+  {
+    id: 'nintendo-direct-2026-06-18',
+    type: 'nintendo',
+    title: 'Nintendo Direct',
+    date: 'June 18, 2026',
+    time: '9:00 AM ET',
+    accent: '#dc2626',
+  },
+  {
+    id: 'sony-state-of-play-2026-07-10',
+    type: 'playstation',
+    title: 'Sony State of Play',
+    date: 'July 10, 2026',
+    time: '4:00 PM ET',
+    accent: '#3b82f6',
+  },
+];
 
-    <div className="px-4 mt-3 glass rounded-3xl p-6">
-      <div className="serif text-[24px] text-zinc-200">Coming in Phase 2</div>
-      <p className="text-zinc-400 text-sm mt-2 leading-relaxed">
-        A curated headline feed from Nintendo, PlayStation, Polygon, and Kinda Funny — scan in the morning,
-        tap to read or listen in-app, link out as fallback.
-      </p>
-      <div className="mt-5 space-y-2">
-        {['Nintendo Life', 'PlayStation Blog', 'Polygon', 'Kinda Funny Games (YouTube + podcast)'].map(s => (
-          <div key={s} className="flex items-center gap-2 text-sm text-zinc-300">
-            <span className="w-1 h-1 rounded-full bg-gold" />
-            {s}
+// Daily podcasts the user listens to
+const MOCK_PODCASTS = [
+  {
+    id: 'kinda-funny-games-daily',
+    show: 'Kinda Funny Games Daily',
+    schedule: 'Daily',
+    accent: '#e2b878',
+    coverGradient: 'linear-gradient(135deg, #c2410c 0%, #7c2d12 100%)',
+    latestEpisode: {
+      title: 'GTA VI confirmed for November + Pokopia reviews are in',
+      date: '2026-05-28',
+      duration: '52 min',
+      youtubeUrl: 'https://www.youtube.com/@KindaFunnyGames',
+      spotifyUrl: 'https://open.spotify.com/show/kinda-funny-games-daily',
+    },
+  },
+  {
+    id: 'kinda-funny-gamescast',
+    show: 'Kinda Funny Gamescast',
+    schedule: 'Weekly · Fridays',
+    accent: '#a8b4c0',
+    coverGradient: 'linear-gradient(135deg, #0c4a6e 0%, #1e293b 100%)',
+    latestEpisode: {
+      title: 'Clair Obscur: Expedition 33 deep dive + Switch 2 anniversary',
+      date: '2026-05-23',
+      duration: '1h 48m',
+      youtubeUrl: 'https://www.youtube.com/@KindaFunnyGames',
+      spotifyUrl: 'https://open.spotify.com/show/kinda-funny-gamescast',
+    },
+  },
+];
+
+// Headlines feed — mix of reviews / upcoming / company / hardware
+const MOCK_HEADLINES = [
+  {
+    id: 'gta-vi-launch-confirmed',
+    title: 'GTA VI launch date locked: November 19, 2026',
+    source: 'Polygon',
+    platforms: ['playstation', 'multi'],
+    category: 'upcoming',
+    publishedAt: '2026-05-28T14:22:00',
+    coverImage: 'https://media.rawg.io/media/games/0ec/0ec5fbe24c87cb9c45ec64ec7df9f8e0.jpg',
+    excerpt: 'Rockstar confirms the long-anticipated sequel will not slip — November 19 is the day.',
+    url: 'https://www.polygon.com/',
+  },
+  {
+    id: 'pokopia-review',
+    title: 'Pokémon Pokopia review: A cozy life sim that nails the vibe',
+    source: 'Nintendo Life',
+    platforms: ['nintendo'],
+    category: 'review',
+    publishedAt: '2026-05-28T08:00:00',
+    coverImage: 'https://media.rawg.io/media/games/67a/67a161425e620772ba69c3caa8f48a95.jpg',
+    excerpt: '9/10 — Game Freak\'s spin-off is the most charming Pokémon experience since New Horizons.',
+    url: 'https://www.nintendolife.com/',
+  },
+  {
+    id: 'ps5-pro-trinity',
+    title: 'Sony confirms PS5 Pro "Trinity" refresh for early 2027',
+    source: 'PlayStation Blog',
+    platforms: ['playstation'],
+    category: 'hardware',
+    publishedAt: '2026-05-27T16:30:00',
+    coverImage: null,
+    excerpt: 'Sony detailed the next iteration of the PS5 Pro with a 3nm APU and new AI upscaling.',
+    url: 'https://blog.playstation.com/',
+  },
+  {
+    id: 'switch-2-30m',
+    title: 'Nintendo Switch 2 hits 30 million units sold worldwide',
+    source: 'Engadget',
+    platforms: ['nintendo'],
+    category: 'company',
+    publishedAt: '2026-05-27T12:00:00',
+    coverImage: null,
+    excerpt: 'Just under a year after launch, Switch 2 has outpaced the original Switch\'s first year by 40%.',
+    url: 'https://www.engadget.com/',
+  },
+  {
+    id: 'marvel-1943-handson',
+    title: 'Marvel 1943: Rise of Hydra hands-on — Skydance delivers',
+    source: 'IGN',
+    platforms: ['playstation', 'multi'],
+    category: 'upcoming',
+    publishedAt: '2026-05-26T18:00:00',
+    coverImage: 'https://media.rawg.io/media/screenshots/75b/75b5b95614f7a958a5e7171454d53fd1.jpg',
+    excerpt: 'After two hours of WWII-set action, Marvel 1943 is shaping up to be the best Cap & Black Panther co-op of the decade.',
+    url: 'https://www.ign.com/',
+  },
+  {
+    id: 'star-fox-everything',
+    title: 'Star Fox returns: Everything we know about the June 25 launch',
+    source: 'Nintendo Life',
+    platforms: ['nintendo'],
+    category: 'upcoming',
+    publishedAt: '2026-05-26T10:15:00',
+    coverImage: null,
+    excerpt: 'A full breakdown of Star Fox\'s revival — multiplayer, all-range mode, and the new ship.',
+    url: 'https://www.nintendolife.com/',
+  },
+  {
+    id: 'ghost-yotei-awards',
+    title: 'Ghost of Yōtei wins five Game Awards including GOTY',
+    source: 'PlayStation Blog',
+    platforms: ['playstation'],
+    category: 'company',
+    publishedAt: '2026-05-25T22:30:00',
+    coverImage: null,
+    excerpt: 'Sucker Punch took home Game of the Year, Direction, Score, Performance, and Innovation.',
+    url: 'https://blog.playstation.com/',
+  },
+  {
+    id: 'silksong-delay',
+    title: 'Hollow Knight: Silksong delayed again, now Spring 2027',
+    source: 'IGN',
+    platforms: ['multi', 'nintendo'],
+    category: 'upcoming',
+    publishedAt: '2026-05-24T15:00:00',
+    coverImage: null,
+    excerpt: 'Team Cherry confirms the second delay this year in a brief blog post promising "it\'ll be worth it."',
+    url: 'https://www.ign.com/',
+  },
+  {
+    id: 'switch-2-joycon-patent',
+    title: 'Nintendo files patent for new Joy-Con back-pad design',
+    source: 'Nintendo Life',
+    platforms: ['nintendo'],
+    category: 'hardware',
+    publishedAt: '2026-05-23T09:00:00',
+    coverImage: null,
+    excerpt: 'The filing describes haptic back-pad sensors that could enable new input modes for first-party games.',
+    url: 'https://www.nintendolife.com/',
+  },
+  {
+    id: 'mixtape-review',
+    title: 'Mixtape review: A pixel love letter to the cassette era',
+    source: 'Polygon',
+    platforms: ['multi'],
+    category: 'review',
+    publishedAt: '2026-05-22T11:30:00',
+    coverImage: 'https://media.rawg.io/media/games/a57/a571fcbc2b2ef30fb3e13a4272ef3a93.jpeg',
+    excerpt: '8.5/10 — Annapurna\'s side-scroller is short and bittersweet, but every frame feels lovingly hand-mixed.',
+    url: 'https://www.polygon.com/',
+  },
+];
+
+// Dismissed banners persist across sessions
+const DISMISSED_KEY = 'vgl.dismissedBanners.v1';
+const loadDismissed = () => {
+  try { return new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY) || '[]')); }
+  catch { return new Set(); }
+};
+const saveDismissed = (set) => {
+  try { localStorage.setItem(DISMISSED_KEY, JSON.stringify([...set])); } catch {}
+};
+
+const SOURCE_COLORS = {
+  'Nintendo Life':       '#dc2626',
+  'PlayStation Blog':    '#3b82f6',
+  'Polygon':             '#a855f7',
+  'IGN':                 '#ef4444',
+  'Engadget':            '#10b981',
+  'Kotaku':              '#f59e0b',
+};
+
+const timeAgo = (iso) => {
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const diff = Math.max(0, now - then);
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+};
+
+// =============================================================================
+// EVENT BANNER (Nintendo Direct / Sony State of Play)
+// =============================================================================
+const EventBanner = ({ event, onDismiss }) => {
+  const palette = event.type === 'nintendo'
+    ? { from: '#7f1d1d', to: '#1c1917', label: 'NINTENDO' }
+    : { from: '#1e3a8a', to: '#0f172a', label: 'PLAYSTATION' };
+  return (
+    <div
+      className="mx-4 mt-3 rounded-2xl overflow-hidden grain relative"
+      style={{ background: `linear-gradient(135deg, ${palette.from} 0%, ${palette.to} 100%)` }}
+    >
+      <div className="p-4 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-[0.22em] font-medium" style={{ color: event.accent }}>
+            {palette.label}
           </div>
-        ))}
+          <div className="serif text-[20px] text-white leading-tight mt-0.5">{event.title}</div>
+          <div className="text-[12px] text-zinc-300 mt-1 tabular-nums">
+            {event.date} · {event.time}
+          </div>
+        </div>
+        <button
+          onClick={() => onDismiss(event.id)}
+          className="glass-light rounded-full p-2 shrink-0"
+          aria-label="Dismiss"
+        >
+          <Icon name="close" className="w-4 h-4 text-zinc-300" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
+// PODCAST CARD
+// =============================================================================
+const PodcastCard = ({ pod, onPlay }) => (
+  <div className="mx-4 mt-3 glass rounded-2xl overflow-hidden">
+    <div className="flex">
+      <div
+        className="w-24 shrink-0 grain"
+        style={{ background: pod.coverGradient }}
+      >
+        <div className="h-full flex items-center justify-center text-3xl">🎙️</div>
+      </div>
+      <div className="flex-1 min-w-0 p-3.5">
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: pod.accent }} />
+          <div className="text-[10px] uppercase tracking-[0.18em] font-medium" style={{ color: pod.accent }}>
+            {pod.schedule}
+          </div>
+        </div>
+        <div className="serif text-[15px] text-white leading-tight mt-1">{pod.show}</div>
+        <div className="text-[12px] text-zinc-400 mt-1.5 line-clamp-2">
+          {pod.latestEpisode.title}
+        </div>
+        <div className="flex items-center gap-2 mt-2">
+          <button
+            onClick={() => onPlay(pod, 'youtube')}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/15 text-[11px] font-medium"
+          >
+            <Icon name="play" className="w-3 h-3" />
+            YouTube
+          </button>
+          <button
+            onClick={() => onPlay(pod, 'spotify')}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/15 text-[11px] font-medium"
+          >
+            <Icon name="play" className="w-3 h-3" />
+            Spotify
+          </button>
+          <span className="text-[11px] text-zinc-500 tabular-nums ml-auto">{pod.latestEpisode.duration}</span>
+        </div>
       </div>
     </div>
   </div>
 );
+
+// =============================================================================
+// HEADLINE CARD
+// =============================================================================
+const HeadlineCard = ({ article, onOpen }) => {
+  const sourceColor = SOURCE_COLORS[article.source] || '#a1a1aa';
+  return (
+    <button
+      onClick={() => onOpen(article)}
+      className="w-full text-left p-3 flex items-start gap-3 hover:bg-white/5 active:bg-white/10 transition-colors"
+    >
+      <div className="w-20 h-20 rounded-xl bg-ink-800 overflow-hidden shrink-0 grain" style={!article.coverImage ? { background: 'linear-gradient(135deg, #27272a 0%, #18181b 100%)' } : {}}>
+        {article.coverImage && (
+          <img src={article.coverImage} alt="" loading="lazy" className="w-full h-full object-cover" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: sourceColor }}>
+            {article.source}
+          </span>
+          <span className="text-[10px] text-zinc-500 tabular-nums">·</span>
+          <span className="text-[10px] text-zinc-500 tabular-nums">{timeAgo(article.publishedAt)}</span>
+        </div>
+        <div className="serif text-[15px] text-white leading-snug mt-0.5 line-clamp-2">{article.title}</div>
+        <div className="text-[12px] text-zinc-400 mt-1 line-clamp-2 leading-snug">{article.excerpt}</div>
+      </div>
+    </button>
+  );
+};
+
+// =============================================================================
+// NEWS FILTER CHIPS
+// =============================================================================
+const NEWS_FILTERS = [
+  { id: 'all',         label: 'All' },
+  { id: 'nintendo',    label: 'Nintendo' },
+  { id: 'playstation', label: 'PlayStation' },
+  { id: 'review',      label: 'Reviews' },
+  { id: 'upcoming',    label: 'Upcoming' },
+  { id: 'hardware',    label: 'Hardware' },
+];
+
+const NewsFilters = ({ active, onChange }) => (
+  <div className="px-4 py-3 flex gap-2 overflow-x-auto no-scrollbar">
+    {NEWS_FILTERS.map(f => {
+      const on = active === f.id;
+      return (
+        <button
+          key={f.id}
+          onClick={() => onChange(f.id)}
+          className={`shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-all ${
+            on ? 'bg-white text-ink-950' : 'glass-light text-zinc-300'
+          }`}
+        >
+          {f.label}
+        </button>
+      );
+    })}
+  </div>
+);
+
+// =============================================================================
+// READER / PLAYER SHEET — placeholder, opens via the link-out for now
+// =============================================================================
+const ReaderSheet = ({ open, item, onClose }) => {
+  if (!open || !item) return null;
+  const isPodcast = !!item.show;
+  return (
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={isPodcast ? 'Now playing' : 'Article'}
+      leftAction={<button onClick={onClose} className="text-zinc-400 text-[14px]">Close</button>}
+      rightAction={
+        <a
+          href={item._linkOut || item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[14px] font-semibold"
+          style={{ color: '#d4a574' }}
+        >
+          Open
+        </a>
+      }
+    >
+      <div className="px-4 py-6">
+        {isPodcast ? (
+          <>
+            <div className="rounded-2xl overflow-hidden mb-4 grain" style={{ background: item.coverGradient, height: 160 }}>
+              <div className="h-full flex items-center justify-center text-5xl">🎙️</div>
+            </div>
+            <div className="text-[11px] uppercase tracking-[0.18em] font-medium mb-1" style={{ color: item.accent }}>
+              {item.show}
+            </div>
+            <h2 className="serif text-[24px] leading-tight text-white">{item.latestEpisode.title}</h2>
+            <div className="text-[12px] text-zinc-500 mt-2">{item.latestEpisode.duration}</div>
+            <div className="mt-6 glass rounded-2xl p-4">
+              <p className="text-sm text-zinc-300 leading-relaxed">
+                In Phase 2 we'll embed the player here so you can listen without leaving the app.
+                For now, tap <strong className="text-white">Open</strong> above to listen on{' '}
+                {item._platform === 'spotify' ? 'Spotify' : 'YouTube'}.
+              </p>
+            </div>
+          </>
+        ) : (
+          <>
+            {item.coverImage && (
+              <div className="rounded-2xl overflow-hidden mb-4 aspect-[16/9]">
+                <img src={item.coverImage} alt="" className="w-full h-full object-cover" />
+              </div>
+            )}
+            <div className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: SOURCE_COLORS[item.source] || '#a1a1aa' }}>
+              {item.source} · {timeAgo(item.publishedAt)}
+            </div>
+            <h2 className="serif text-[26px] leading-tight text-white mt-2">{item.title}</h2>
+            <p className="text-zinc-300 mt-4 leading-relaxed">{item.excerpt}</p>
+            <div className="mt-6 glass rounded-2xl p-4">
+              <p className="text-sm text-zinc-400 leading-relaxed">
+                In Phase 2 we'll render the full article here (iOS Reader-style).
+                For now, tap <strong className="text-white">Open</strong> above to read on {item.source}.
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+    </Sheet>
+  );
+};
+
+// =============================================================================
+// NEWS SCREEN
+// =============================================================================
+const NewsScreen = ({ games, onSelect, tab, onTabChange }) => {
+  const [dismissed, setDismissed] = useState(loadDismissed);
+  const [filter, setFilter] = useState('all');
+  const [reader, setReader] = useState(null);
+
+  const dismiss = (id) => {
+    setDismissed(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      saveDismissed(next);
+      return next;
+    });
+  };
+
+  const events = MOCK_EVENT_BANNERS.filter(e => !dismissed.has(e.id));
+
+  const filtered = useMemo(() => {
+    if (filter === 'all') return MOCK_HEADLINES;
+    if (filter === 'nintendo') return MOCK_HEADLINES.filter(a => a.platforms.includes('nintendo') || a.source === 'Nintendo Life');
+    if (filter === 'playstation') return MOCK_HEADLINES.filter(a => a.platforms.includes('playstation') || a.source === 'PlayStation Blog');
+    return MOCK_HEADLINES.filter(a => a.category === filter);
+  }, [filter]);
+
+  const openPodcast = (pod, platform) => {
+    setReader({ ...pod, _linkOut: platform === 'spotify' ? pod.latestEpisode.spotifyUrl : pod.latestEpisode.youtubeUrl, _platform: platform });
+  };
+
+  return (
+    <div className="screen-enter pt-safe pb-32">
+      <div className="px-4 pt-5 pb-1">
+        <TitleNav active={tab} onChange={onTabChange} />
+      </div>
+
+      {/* Stack of dismissible banners */}
+      <RecentReleaseBanner games={games} onSelect={onSelect} />
+      {events.map(e => (
+        <EventBanner key={e.id} event={e} onDismiss={dismiss} />
+      ))}
+
+      {/* Podcasts */}
+      <div className="px-5 mt-6 mb-1">
+        <div className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 font-medium">Today's podcasts</div>
+      </div>
+      {MOCK_PODCASTS.map(p => (
+        <PodcastCard key={p.id} pod={p} onPlay={openPodcast} />
+      ))}
+
+      {/* Headlines */}
+      <div className="px-5 mt-7 mb-1">
+        <div className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 font-medium">Latest headlines</div>
+      </div>
+      <NewsFilters active={filter} onChange={setFilter} />
+      <div className="mx-4 glass rounded-3xl overflow-hidden divide-y divide-white/5">
+        {filtered.length === 0 ? (
+          <div className="p-6 text-center text-zinc-500 text-sm">No headlines match that filter.</div>
+        ) : (
+          filtered.map(a => <HeadlineCard key={a.id} article={a} onOpen={setReader} />)
+        )}
+      </div>
+
+      <ReaderSheet open={!!reader} item={reader} onClose={() => setReader(null)} />
+    </div>
+  );
+};
 
 // =============================================================================
 // TITLE NAV — two big serif titles side by side; tap to switch sections.
