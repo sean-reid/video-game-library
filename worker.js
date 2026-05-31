@@ -32,13 +32,13 @@ const RSS_SOURCES = [
   { source: 'Vice',             url: 'https://www.vice.com/en/rss' },
 ];
 
-// Channel IDs (verify at youtube.com/<channel> → View Page Source → search "channelId").
-// If a channel ID changes, the Worker just returns empty episodes for that show.
+// Podcasts — referenced by handle, the Worker resolves the channel ID itself
+// by scraping the channel page once per cache window.
 const PODCAST_SOURCES = [
   {
     id: 'kinda-funny-games-daily',
     show: 'Kinda Funny Games Daily',
-    youtubeChannelId: 'UCagARFKzU7CK6w-D0RYRtsA', // @KindaFunnyGames
+    youtubeHandle: '@KindaFunnyGames',
     titleIncludes: 'Games Daily',
     accent: '#e2b878',
     coverGradient: 'linear-gradient(135deg, #c2410c 0%, #7c2d12 100%)',
@@ -48,7 +48,7 @@ const PODCAST_SOURCES = [
   {
     id: 'kinda-funny-gamescast',
     show: 'Kinda Funny Gamescast',
-    youtubeChannelId: 'UCagARFKzU7CK6w-D0RYRtsA', // @KindaFunnyGames
+    youtubeHandle: '@KindaFunnyGames',
     titleIncludes: 'Gamescast',
     accent: '#a8b4c0',
     coverGradient: 'linear-gradient(135deg, #0c4a6e 0%, #1e293b 100%)',
@@ -56,6 +56,11 @@ const PODCAST_SOURCES = [
     spotifyUrl: 'https://open.spotify.com/show/4XPl3uEEL9hvqMkoZrzbx5',
   },
 ];
+
+// Drop articles that are clearly off-topic.
+const NSFW_KEYWORDS = /\b(porn|nude|sex|erotic|onlyfans|hentai|nsfw|escort|prostitut|fetish|kink)\b/i;
+// For Vice — only keep URL paths that are clearly gaming/tech.
+const VICE_KEEP = /\/(games?|gaming|waypoint|tech|technology)(\/|$|-)/i;
 
 const WIKIPEDIA_EVENT_SOURCES = [
   {
@@ -141,21 +146,47 @@ async function fetchAllHeadlines() {
     RSS_SOURCES.map(async (src) => {
       try {
         const xml = await fetchText(src.url);
-        const items = parseRSS(xml).slice(0, HEADLINES_PER_SOURCE);
-        return items.map((it) => ({
-          ...it,
-          source: src.source,
-          platforms: inferPlatforms(it.title, src.source),
-          category: inferCategory(it.title),
-        }));
+        let items = parseRSS(xml);
+
+        // Vice publishes everything under one feed — only keep gaming/tech URLs.
+        if (src.source === 'Vice') {
+          items = items.filter((it) => it.url && VICE_KEEP.test(it.url));
+        }
+
+        // Drop NSFW articles by title/excerpt keyword match.
+        items = items.filter(
+          (it) => !NSFW_KEYWORDS.test(it.title || '') && !NSFW_KEYWORDS.test(it.excerpt || '')
+        );
+
+        items = items.slice(0, HEADLINES_PER_SOURCE);
+
+        return items
+          .map((it) => ({
+            ...it,
+            source: src.source,
+            platforms: inferPlatforms(it.title, src.source),
+            category: inferCategory(it.title),
+          }))
+          // Drop articles whose only platform is Xbox (user is PS + Switch).
+          .filter((it) => !(it.platforms.length === 1 && it.platforms[0] === 'xbox'));
       } catch (e) {
         return [];
       }
     })
   );
   const flat = results.flat();
-  flat.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
-  return flat.slice(0, HEADLINES_TOTAL);
+
+  // Dedupe by URL — some articles cross-post across aggregators.
+  const seen = new Set();
+  const unique = flat.filter((it) => {
+    const key = (it.url || it.id || '').replace(/[#?].*$/, '');
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  unique.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+  return unique.slice(0, HEADLINES_TOTAL);
 }
 
 function inferPlatforms(title, source) {
@@ -183,6 +214,17 @@ function inferCategory(title) {
 // PODCASTS (YouTube channel RSS, filtered by keyword)
 // =============================================================================
 async function fetchAllPodcasts() {
+  // Resolve channel IDs once (multiple shows may share a handle).
+  const handleToChannelId = new Map();
+  const uniqueHandles = [...new Set(PODCAST_SOURCES.map((p) => p.youtubeHandle).filter(Boolean))];
+  await Promise.all(
+    uniqueHandles.map(async (handle) => {
+      try {
+        handleToChannelId.set(handle, await resolveYouTubeChannelId(handle));
+      } catch {}
+    })
+  );
+
   return Promise.all(
     PODCAST_SOURCES.map(async (pod) => {
       const baseShape = {
@@ -195,8 +237,10 @@ async function fetchAllPodcasts() {
         episodes: [],
       };
       try {
+        const channelId = handleToChannelId.get(pod.youtubeHandle);
+        if (!channelId) throw new Error(`Could not resolve channel ID for ${pod.youtubeHandle}`);
         const xml = await fetchText(
-          `https://www.youtube.com/feeds/videos.xml?channel_id=${pod.youtubeChannelId}`
+          `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`
         );
         const videos = parseAtom(xml);
         const needle = pod.titleIncludes.toLowerCase();
@@ -204,7 +248,7 @@ async function fetchAllPodcasts() {
         baseShape.episodes = matching.slice(0, PODCAST_EPISODES).map((v) => ({
           title: cleanEpisodeTitle(v.title, pod.titleIncludes),
           date: v.publishedAt.slice(0, 10),
-          duration: '', // YouTube channel RSS doesn't include duration
+          duration: '',
           youtubeUrl: v.url,
           spotifyUrl: pod.spotifyUrl,
         }));
@@ -215,6 +259,26 @@ async function fetchAllPodcasts() {
       }
     })
   );
+}
+
+// Fetch a YouTube channel page and extract its channelId from the embedded
+// metadata. Works with @handle URLs which don't expose the ID in their path.
+async function resolveYouTubeChannelId(handleOrUrl) {
+  const url = handleOrUrl.startsWith('http')
+    ? handleOrUrl
+    : `https://www.youtube.com/${handleOrUrl.replace(/^\/+/, '')}`;
+  const html = await fetchText(url);
+  const candidates = [
+    /"channelId":"(UC[\w-]{20,})"/,
+    /"externalId":"(UC[\w-]{20,})"/,
+    /<link\s+rel="canonical"\s+href="[^"]*\/channel\/(UC[\w-]{20,})"/,
+    /\/channel\/(UC[\w-]{20,})/,
+  ];
+  for (const re of candidates) {
+    const m = html.match(re);
+    if (m) return m[1];
+  }
+  return null;
 }
 
 // "Kinda Funny Games Daily 05-29-26 — GTA VI date locked" → "GTA VI date locked"
@@ -254,28 +318,63 @@ async function fetchAllEvents() {
 }
 
 function extractWikipediaUpcoming(html) {
-  // Locate the "Upcoming presentations" / "Upcoming State of Play" section,
-  // then read the first table row that follows.
-  const sectionMatch = html.match(/<h[1-3][^>]*id="[^"]*Upcoming[^"]*"[^>]*>[\s\S]{0,12000}/i);
-  if (!sectionMatch) return null;
-  const slice = sectionMatch[0];
-  const firstRowMatch = slice.match(/<tr[^>]*>[\s\S]*?<\/tr>/);
-  if (!firstRowMatch) return null;
-  const cells = [...firstRowMatch[0].matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/g)]
-    .map((m) => stripTags(m[1]).trim())
-    .filter(Boolean);
-  let date = '';
-  let time = '';
-  for (const cell of cells) {
-    if (!date && /\b\d{4}\b/.test(cell) && /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(cell)) {
-      date = cell;
+  // Walk every table row on the page. For each row, parse cells looking for
+  // a future-dated cell + a time-of-day cell. Pick the soonest upcoming
+  // event from anywhere in the page (handles "Upcoming" sections, main
+  // tables with a future row, etc.).
+  const now = Date.now();
+  const candidates = [];
+  for (const rowMatch of html.matchAll(/<tr[^>]*>[\s\S]*?<\/tr>/g)) {
+    const cells = [...rowMatch[0].matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/g)]
+      .map((m) => stripTags(m[1]).replace(/\[\d+\]/g, '').trim())
+      .filter(Boolean);
+    if (cells.length === 0) continue;
+
+    let dateCell = '';
+    let dateTs = 0;
+    let timeCell = '';
+    for (const cell of cells) {
+      if (!dateCell) {
+        const parsed = parseEventDate(cell);
+        if (parsed && parsed.getTime() > now - 86_400_000) {
+          dateCell = cell;
+          dateTs = parsed.getTime();
+        }
+      }
+      if (!timeCell && /\d{1,2}[:.]\d{2}\s*(am|pm|a\.m\.|p\.m\.|et|pt|ct|mt|utc|gmt)/i.test(cell)) {
+        timeCell = cell;
+      }
     }
-    if (!time && /\d{1,2}[:.]\d{2}\s*(am|pm|et|pt|ct|mt|utc|gmt)/i.test(cell)) {
-      time = cell;
+    if (dateCell && dateTs > now - 86_400_000) {
+      candidates.push({ date: dateCell, time: timeCell || 'TBA', ts: dateTs });
     }
   }
-  if (!date) return null;
-  return { date, time: time || 'TBA' };
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.ts - b.ts);
+  return { date: candidates[0].date, time: candidates[0].time };
+}
+
+function parseEventDate(s) {
+  if (!s) return null;
+  const cleaned = String(s).replace(/\[\d+\]/g, '').trim();
+
+  // Try native Date parse first ("June 2, 2026", "2 June 2026", "2026-06-02")
+  const native = new Date(cleaned);
+  if (!isNaN(native.getTime()) && native.getFullYear() > 2000 && native.getFullYear() < 2100) {
+    return native;
+  }
+
+  // "June 2, 2026" / "Jun 2 2026"
+  const monthDayYear = cleaned.match(/(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\s+(\d{1,2}),?\s+(\d{4})/i);
+  if (monthDayYear) {
+    const months = { january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11,jan:0,feb:1,mar:2,apr:3,jun:5,jul:6,aug:7,sep:8,sept:8,oct:9,nov:10,dec:11 };
+    const m = months[monthDayYear[1].toLowerCase()];
+    if (m !== undefined) {
+      return new Date(parseInt(monthDayYear[3], 10), m, parseInt(monthDayYear[2], 10));
+    }
+  }
+
+  return null;
 }
 
 // =============================================================================
