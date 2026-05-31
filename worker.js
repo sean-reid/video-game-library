@@ -125,11 +125,13 @@ async function getNews(request, ctx, forceFresh) {
 }
 
 async function buildNewsBundle() {
-  const [headlines, podcasts, events] = await Promise.all([
+  // Headlines feed BOTH the headlines list AND the event detection (so we can
+  // catch a State of Play announcement that Wikipedia hasn't logged yet).
+  const [headlines, podcasts] = await Promise.all([
     fetchAllHeadlines(),
     fetchAllPodcasts(),
-    fetchAllEvents(),
   ]);
+  const events = await fetchAllEvents(headlines);
   return {
     fetchedAt: new Date().toISOString(),
     headlines,
@@ -294,8 +296,9 @@ function cleanEpisodeTitle(title, showName) {
 // =============================================================================
 // EVENTS (Wikipedia scrape)
 // =============================================================================
-async function fetchAllEvents() {
-  const results = await Promise.all(
+async function fetchAllEvents(headlines) {
+  // 1) Try Wikipedia (works once the page is updated, but they're slow).
+  const wikiEvents = await Promise.all(
     WIKIPEDIA_EVENT_SOURCES.map(async (ev) => {
       try {
         const html = await fetchText(ev.url);
@@ -314,7 +317,99 @@ async function fetchAllEvents() {
       }
     })
   );
-  return results.filter(Boolean);
+
+  // 2) Scan recent headlines for event announcements — catches fresh news
+  //    Wikipedia hasn't logged yet (announcements come hours/days before).
+  const headlineEvents = extractEventsFromHeadlines(headlines || []);
+
+  // 3) Merge + dedupe by type+date.
+  return dedupeEvents([...wikiEvents.filter(Boolean), ...headlineEvents]);
+}
+
+function dedupeEvents(events) {
+  const seen = new Map();
+  for (const ev of events) {
+    // Loose key — same type within a few days = same event
+    const ts = parseEventDate(ev.date)?.getTime();
+    const dayKey = ts ? Math.floor(ts / 86400000) : ev.date;
+    const key = `${ev.type}-${dayKey}`;
+    if (!seen.has(key)) seen.set(key, ev);
+  }
+  return [...seen.values()];
+}
+
+function extractEventsFromHeadlines(headlines) {
+  const now = Date.now();
+  const events = [];
+  for (const h of headlines) {
+    const text = `${h.title || ''} ${h.excerpt || ''}`;
+
+    const isStateOfPlay = /state of play/i.test(text);
+    // Exclude "recap" / "everything announced at" style coverage
+    const isPastCoverage = /recap|everything announced|highlights|round-?up|here's what|takeaways|reaction/i.test(text);
+    const isNintendoDirect =
+      /nintendo direct/i.test(text) && !/last|previous|past month/i.test(text);
+
+    if (!(isStateOfPlay || isNintendoDirect)) continue;
+    if (isPastCoverage) continue;
+
+    const parsed = extractDateFromText(text);
+    if (!parsed) continue;
+    const ts = parsed.getTime();
+    // Only future events, within 90 days (avoid false positives from old hits)
+    if (ts < now - 86_400_000) continue;
+    if (ts > now + 90 * 86_400_000) continue;
+
+    const type = isStateOfPlay ? 'playstation' : 'nintendo';
+    const title = isStateOfPlay ? 'Sony State of Play' : 'Nintendo Direct';
+    const accent = isStateOfPlay ? '#3b82f6' : '#dc2626';
+
+    events.push({
+      id: `${type}-${parsed.toISOString().slice(0, 10)}`,
+      type,
+      title,
+      date: parsed.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+      time: extractTimeFromText(text) || 'TBA',
+      accent,
+      _source: 'headlines',
+      _from: h.source,
+    });
+  }
+  return events;
+}
+
+function extractDateFromText(text) {
+  const monthRe = '(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)';
+  // "June 2, 2026", "Jun 2 2026", "June 2nd", "2nd of June"
+  let m = text.match(new RegExp(`\\b${monthRe}\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s*(\\d{4}))?\\b`, 'i'));
+  if (!m) m = text.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${monthRe}(?:,?\\s*(\\d{4}))?\\b`, 'i'));
+  if (!m) return null;
+
+  const months = { january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11,jan:0,feb:1,mar:2,apr:3,jun:5,jul:6,aug:7,sep:8,sept:8,oct:9,nov:10,dec:11 };
+  let monthName, day, year;
+  if (months[m[1].toLowerCase()] !== undefined) {
+    monthName = m[1]; day = parseInt(m[2], 10); year = m[3] ? parseInt(m[3], 10) : null;
+  } else {
+    day = parseInt(m[1], 10); monthName = m[2]; year = m[3] ? parseInt(m[3], 10) : null;
+  }
+  const month = months[monthName.toLowerCase()];
+  if (month === undefined || !day) return null;
+
+  if (!year) {
+    // Pick the next occurrence: this year if still upcoming, otherwise next year
+    const now = new Date();
+    const thisYear = new Date(now.getFullYear(), month, day);
+    year = thisYear.getTime() < now.getTime() - 86_400_000 ? now.getFullYear() + 1 : now.getFullYear();
+  }
+
+  return new Date(year, month, day);
+}
+
+function extractTimeFromText(text) {
+  const m = text.match(
+    /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)(?:\s+(Pacific|Eastern|Central|Mountain|PT|ET|CT|MT|UTC|GMT))?\b/i
+  );
+  return m ? m[0] : null;
 }
 
 function extractWikipediaUpcoming(html) {
