@@ -59,14 +59,24 @@ const PODCAST_SOURCES = [
 
 // Drop articles that are clearly off-topic.
 const NSFW_KEYWORDS = /\b(porn|nude|sex|erotic|onlyfans|hentai|nsfw|escort|prostitut|fetish|kink)\b/i;
-// For Vice — only keep URL paths that are clearly gaming/tech.
-const VICE_KEEP = /\/(games?|gaming|waypoint|tech|technology)(\/|$|-)/i;
+
+// For Vice — only keep URL paths that are clearly gaming.
+const VICE_KEEP = /\/(games?|gaming|waypoint)(\/|$|-)/i;
+
+// Drop articles whose title makes them clearly NOT about video games.
+// Conservative — we'd rather let a few false negatives through than drop
+// legit gaming news. Only fires on strong "this is a movie/TV/comic" signals.
+const NON_GAMING_TITLE_RE = /\b(movie|film(?!s?\s+(festival|score))|tv\s+show|tv\s+series|television series|series\s+(finale|premiere|renewed|cancell)|season\s+(finale|premiere|\d)|miniseries|streaming\s+series|netflix\s+(series|show|original)|hbo\s+(max\s+)?(series|show)|disney\+\s+(series|show)|apple\s+tv\+\s+(series|show)|prime\s+video\s+(series|show)|comic\s+book(?!\s+game)|graphic\s+novel|manga(?!\s+(game|adaptation))|anime\s+(series|season|episode)|album\s+release|world\s+tour|music\s+video|talk\s+show|late\s+night|wrestlemania|super\s+bowl|olympics)\b/i;
+
+// Articles whose title shouts gaming — these override the non-gaming filter
+// (rare cases where both match, e.g. "Movie tie-in game launched").
+const STRONG_GAMING_TITLE_RE = /\b(video\s+game|gameplay|playstation|ps[1-9]|xbox|nintendo|switch\s*2?|steam\s+deck|game\s+pass|dlc|expansion\s+pack|controller|console\s+(launch|exclusive)|esports?|speedrun)\b/i;
 
 const WIKIPEDIA_EVENT_SOURCES = [
   {
     type: 'nintendo',
     title: 'Nintendo Direct',
-    url: 'https://en.wikipedia.org/wiki/List_of_Nintendo_Direct_presentations',
+    url: 'https://en.wikipedia.org/wiki/Nintendo_Direct',
     accent: '#dc2626',
   },
   {
@@ -175,6 +185,14 @@ async function fetchAllHeadlines() {
         items = items.filter(
           (it) => !NSFW_KEYWORDS.test(it.title || '') && !NSFW_KEYWORDS.test(it.excerpt || '')
         );
+
+        // Drop articles that are clearly NOT about video games (movies, TV
+        // shows, comics, anime, music). Strong gaming signals override.
+        items = items.filter((it) => {
+          const title = it.title || '';
+          if (STRONG_GAMING_TITLE_RE.test(title)) return true;
+          return !NON_GAMING_TITLE_RE.test(title);
+        });
 
         items = items.slice(0, HEADLINES_PER_SOURCE);
 
