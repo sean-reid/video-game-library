@@ -72,7 +72,7 @@ const WIKIPEDIA_EVENT_SOURCES = [
   {
     type: 'playstation',
     title: 'Sony State of Play',
-    url: 'https://en.wikipedia.org/wiki/State_of_Play_(PlayStation)',
+    url: 'https://en.wikipedia.org/wiki/State_of_Play_(video_program)',
     accent: '#3b82f6',
   },
 ];
@@ -95,6 +95,22 @@ export default {
     if (url.pathname === '/news') {
       const forceFresh = url.searchParams.has('nocache');
       return getNews(request, ctx, forceFresh);
+    }
+
+    // Diagnostic — shows headlines that contain Direct/State of Play, plus
+    // whatever events we detected. Helpful to confirm whether a missing
+    // event is a detection problem or a feed problem.
+    if (url.pathname === '/debug') {
+      const headlines = await fetchAllHeadlines();
+      const sopHeadlines = headlines.filter(h => /state of play/i.test(h.title || ''));
+      const ndHeadlines = headlines.filter(h => /nintendo direct/i.test(h.title || ''));
+      const events = await fetchAllEvents(headlines);
+      return jsonResponse({
+        totalHeadlines: headlines.length,
+        stateOfPlayMentions: sopHeadlines.map(h => ({ source: h.source, title: h.title, publishedAt: h.publishedAt, url: h.url })),
+        nintendoDirectMentions: ndHeadlines.map(h => ({ source: h.source, title: h.title, publishedAt: h.publishedAt, url: h.url })),
+        events,
+      });
     }
 
     return new Response('Not found', { status: 404, headers: corsHeaders() });
@@ -339,26 +355,33 @@ function dedupeEvents(events) {
 }
 
 function extractEventsFromHeadlines(headlines) {
-  const now = Date.now();
   const events = [];
   for (const h of headlines) {
     const text = `${h.title || ''} ${h.excerpt || ''}`;
+    const titleOnly = h.title || '';
 
     const isStateOfPlay = /state of play/i.test(text);
-    // Exclude "recap" / "everything announced at" style coverage
-    const isPastCoverage = /recap|everything announced|highlights|round-?up|here's what|takeaways|reaction/i.test(text);
-    const isNintendoDirect =
-      /nintendo direct/i.test(text) && !/last|previous|past month/i.test(text);
+    // Exclude past-coverage headlines — check title only to avoid catching
+    // an excerpt that mentions "highlights from previous shows" in a
+    // forward-looking announcement.
+    const isPastCoverage = /\b(recap|everything announced|highlights|round-?up|here's what|takeaways|reaction|aftermath|takeaway)\b/i.test(titleOnly);
+    const isNintendoDirect = /nintendo direct/i.test(text);
 
     if (!(isStateOfPlay || isNintendoDirect)) continue;
     if (isPastCoverage) continue;
 
-    const parsed = extractDateFromText(text);
+    // Use the article's publish date as the year context: "June 2" in a
+    // May 2026 article is overwhelmingly likely to mean June 2, 2026.
+    const contextDate = h.publishedAt ? new Date(h.publishedAt) : new Date();
+    const parsed = extractDateFromText(text, contextDate);
     if (!parsed) continue;
+
     const ts = parsed.getTime();
-    // Only future events, within 90 days (avoid false positives from old hits)
-    if (ts < now - 86_400_000) continue;
-    if (ts > now + 90 * 86_400_000) continue;
+    const contextTs = contextDate.getTime();
+    // Skip if the event is well before the article was written (probably a
+    // reference to a past event) or far past the cache window.
+    if (ts < contextTs - 7 * 86_400_000) continue;
+    if (ts > contextTs + 120 * 86_400_000) continue;
 
     const type = isStateOfPlay ? 'playstation' : 'nintendo';
     const title = isStateOfPlay ? 'Sony State of Play' : 'Nintendo Direct';
@@ -373,12 +396,13 @@ function extractEventsFromHeadlines(headlines) {
       accent,
       _source: 'headlines',
       _from: h.source,
+      _matchedTitle: h.title,
     });
   }
   return events;
 }
 
-function extractDateFromText(text) {
+function extractDateFromText(text, contextDate) {
   const monthRe = '(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)';
   // "June 2, 2026", "Jun 2 2026", "June 2nd", "2nd of June"
   let m = text.match(new RegExp(`\\b${monthRe}\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s*(\\d{4}))?\\b`, 'i'));
@@ -396,10 +420,14 @@ function extractDateFromText(text) {
   if (month === undefined || !day) return null;
 
   if (!year) {
-    // Pick the next occurrence: this year if still upcoming, otherwise next year
-    const now = new Date();
-    const thisYear = new Date(now.getFullYear(), month, day);
-    year = thisYear.getTime() < now.getTime() - 86_400_000 ? now.getFullYear() + 1 : now.getFullYear();
+    // Anchor to the article's publish date when available — "June 2" in an
+    // article published May 20, 2026 almost certainly means June 2, 2026,
+    // even if the Worker's wall clock is in a different year.
+    const anchor = contextDate || new Date();
+    const anchorYear = anchor.getFullYear();
+    const candidate = new Date(anchorYear, month, day);
+    // If the candidate is well before the anchor, the event is next year.
+    year = candidate.getTime() < anchor.getTime() - 30 * 86_400_000 ? anchorYear + 1 : anchorYear;
   }
 
   return new Date(year, month, day);
