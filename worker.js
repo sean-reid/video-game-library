@@ -38,12 +38,14 @@ const RSS_SOURCES = [
 
 // Podcasts — referenced by handle, the Worker resolves the channel ID itself
 // by scraping the channel page once per cache window.
+// titlePatterns is a pipe-separated list of case-insensitive substrings;
+// any one match against the video title OR description keeps the episode.
 const PODCAST_SOURCES = [
   {
     id: 'kinda-funny-games-daily',
     show: 'Kinda Funny Games Daily',
     youtubeHandle: '@KindaFunnyGames',
-    titleIncludes: 'Games Daily',
+    titlePatterns: 'games daily|kfgd|games daily news',
     accent: '#e2b878',
     coverGradient: 'linear-gradient(135deg, #c2410c 0%, #7c2d12 100%)',
     youtubeUrl: 'https://www.youtube.com/@KindaFunnyGames',
@@ -53,7 +55,7 @@ const PODCAST_SOURCES = [
     id: 'kinda-funny-gamescast',
     show: 'Kinda Funny Gamescast',
     youtubeHandle: '@KindaFunnyGames',
-    titleIncludes: 'Gamescast',
+    titlePatterns: 'gamescast',
     accent: '#a8b4c0',
     coverGradient: 'linear-gradient(135deg, #0c4a6e 0%, #1e293b 100%)',
     youtubeUrl: 'https://www.youtube.com/@KindaFunnyGames',
@@ -306,15 +308,37 @@ async function fetchAllPodcasts() {
           `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`
         );
         const videos = parseAtom(xml);
-        const needle = pod.titleIncludes.toLowerCase();
-        const matching = videos.filter((v) => v.title.toLowerCase().includes(needle));
+
+        // Support multiple matching patterns ('games daily|kfgd|...') against
+        // either the video title or its description.
+        const patterns = (pod.titlePatterns || pod.titleIncludes || '')
+          .toLowerCase()
+          .split('|')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const matching = videos.filter((v) => {
+          const haystack = `${v.title || ''} ${v.description || ''}`.toLowerCase();
+          return patterns.some((p) => haystack.includes(p));
+        });
+
+        // Pick a display label for the episode title cleanup — first pattern works
+        const primaryNeedle = patterns[0] || '';
         baseShape.episodes = matching.slice(0, PODCAST_EPISODES).map((v) => ({
-          title: cleanEpisodeTitle(v.title, pod.titleIncludes),
+          title: cleanEpisodeTitle(v.title, primaryNeedle),
           date: v.publishedAt.slice(0, 10),
           duration: '',
           youtubeUrl: v.url,
           spotifyUrl: pod.spotifyUrl,
         }));
+
+        // Always include diagnostics so we can debug when a show goes empty
+        baseShape._debug = {
+          channelId,
+          patterns,
+          totalVideos: videos.length,
+          matchedCount: matching.length,
+          recentVideoTitles: videos.slice(0, 10).map((v) => v.title),
+        };
         return baseShape;
       } catch (e) {
         baseShape.error = String(e);
@@ -726,9 +750,12 @@ function parseAtom(xml) {
     const linkMatch = raw.match(/<link[^>]+href="([^"]+)"/);
     const link = linkMatch?.[1] || '';
     const published = extractField(raw, 'published') || extractField(raw, 'updated');
+    // YouTube includes the video description inside <media:description>
+    const description = extractField(raw, 'media:description');
     items.push({
       id: extractField(raw, 'yt:videoId') || link,
       title: cleanEntities(title),
+      description: description ? cleanEntities(description) : '',
       url: link,
       publishedAt: parseDate(published),
     });
