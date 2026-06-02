@@ -4364,7 +4364,7 @@ const GameDetailScreen = ({ game, onBack, onEdit }) => {
 const WORKER_BASE = 'https://vgl-news.danrstaton.workers.dev';
 const NEWS_URL = `${WORKER_BASE}/news`;
 const ARTICLE_URL = (url) => `${WORKER_BASE}/article?url=${encodeURIComponent(url)}`;
-const NEWS_CACHE_KEY = 'vgl.news.v1';
+const NEWS_CACHE_KEY = 'vgl.news.v2';
 
 // Mark-as-read state — persists across sessions
 const READ_KEY = 'vgl.readArticles.v1';
@@ -4593,6 +4593,14 @@ const EventBanner = ({ event, onDismiss }) => {
 // PODCAST CARD
 // =============================================================================
 const PodcastCard = ({ pod, onPlay, onViewAll }) => {
+  // Graceful fallback if the Worker temporarily returns no episodes
+  if (!pod.episodes || pod.episodes.length === 0) {
+    return (
+      <div className="mx-4 mt-3 glass rounded-2xl p-4 text-sm text-zinc-500">
+        No recent episodes for <span className="text-zinc-300">{pod.show}</span> yet.
+      </div>
+    );
+  }
   const latest = pod.episodes[0];
   const previous = pod.episodes.slice(1);
   const pulseColor = freshnessPulse(latest.date);
@@ -5345,8 +5353,47 @@ const App = () => {
   );
 };
 
+// Catches render errors so a bad data shape doesn't blank the whole tab.
+// Offers a one-tap reset that wipes the news cache and reloads.
+class ErrorBoundary extends React.Component {
+  state = { error: null };
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    try { console.error('VGL error caught:', error, info); } catch {}
+  }
+  reset = () => {
+    try {
+      localStorage.removeItem('vgl.news.v1');
+      localStorage.removeItem('vgl.news.v2');
+    } catch {}
+    location.reload();
+  };
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6 bg-ink-950 text-zinc-100">
+          <div className="max-w-sm text-center">
+            <div className="text-4xl mb-3">🎮</div>
+            <h2 className="serif text-[26px] mb-2">Something went wrong</h2>
+            <p className="text-zinc-400 text-sm leading-relaxed mb-5">
+              {String(this.state.error?.message || this.state.error).slice(0, 220)}
+            </p>
+            <button
+              onClick={this.reset}
+              className="px-4 py-2 rounded-full bg-white text-ink-950 text-sm font-medium"
+            >
+              Reset news cache &amp; reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<App />);
+root.render(<ErrorBoundary><App /></ErrorBoundary>);
 
 // Register service worker (foundation for future push notifications)
 if ('serviceWorker' in navigator) {
