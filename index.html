@@ -99,6 +99,84 @@
     background: linear-gradient(180deg, rgba(245,245,247,0.95), rgba(245,245,247,0.85));
     color: #0a0a0c;
   }
+
+  /* Rendered article body — turns raw HTML from the Worker into something
+     readable in our dark editorial theme. */
+  .article-body {
+    color: #d4d4d8;
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  .article-body p {
+    margin-bottom: 1.1em;
+  }
+  .article-body p:last-child { margin-bottom: 0; }
+  .article-body h1, .article-body h2, .article-body h3, .article-body h4 {
+    font-family: 'Lora', Georgia, serif;
+    color: #f5f5f7;
+    margin: 1.6em 0 0.5em;
+    line-height: 1.25;
+  }
+  .article-body h1 { font-size: 1.5em; }
+  .article-body h2 { font-size: 1.3em; }
+  .article-body h3 { font-size: 1.15em; }
+  .article-body h4 { font-size: 1.05em; }
+  .article-body img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 12px;
+    margin: 1.1em 0;
+    display: block;
+  }
+  .article-body figure { margin: 1.1em 0; }
+  .article-body figcaption {
+    font-size: 0.85em;
+    color: #71717a;
+    margin-top: 0.4em;
+    text-align: center;
+  }
+  .article-body a {
+    color: #d4a574;
+    text-decoration: underline;
+    text-decoration-color: rgba(212, 165, 116, 0.35);
+    text-underline-offset: 2px;
+  }
+  .article-body blockquote {
+    border-left: 3px solid #d4a574;
+    padding-left: 1em;
+    margin: 1.2em 0;
+    color: #a1a1aa;
+    font-style: italic;
+  }
+  .article-body ul, .article-body ol {
+    padding-left: 1.5em;
+    margin-bottom: 1.1em;
+  }
+  .article-body li { margin-bottom: 0.5em; }
+  .article-body strong, .article-body b { color: #f5f5f7; }
+  .article-body em, .article-body i { font-style: italic; }
+  .article-body hr {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    margin: 1.5em 0;
+  }
+  .article-body pre, .article-body code {
+    background: rgba(255,255,255,0.05);
+    border-radius: 6px;
+    padding: 0.15em 0.35em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.92em;
+  }
+  .article-body pre {
+    padding: 0.8em 1em;
+    overflow-x: auto;
+    margin: 1.1em 0;
+  }
+  .article-body iframe {
+    max-width: 100%;
+    border-radius: 12px;
+    margin: 1.1em 0;
+  }
 </style>
 
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -4283,8 +4361,24 @@ const GameDetailScreen = ({ game, onBack, onEdit }) => {
 // =============================================================================
 // NEWS — fetched live from the Cloudflare Worker
 // =============================================================================
-const NEWS_URL = 'https://vgl-news.danrstaton.workers.dev/news';
+const WORKER_BASE = 'https://vgl-news.danrstaton.workers.dev';
+const NEWS_URL = `${WORKER_BASE}/news`;
+const ARTICLE_URL = (url) => `${WORKER_BASE}/article?url=${encodeURIComponent(url)}`;
 const NEWS_CACHE_KEY = 'vgl.news.v1';
+
+// Mark-as-read state — persists across sessions
+const READ_KEY = 'vgl.readArticles.v1';
+const loadRead = () => {
+  try {
+    const raw = localStorage.getItem(READ_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return new Set();
+};
+const saveRead = (set) => {
+  try { localStorage.setItem(READ_KEY, JSON.stringify([...set])); } catch {}
+};
+const articleKey = (article) => article?.id || article?.url || '';
 
 // Each podcast show needs a cover gradient (the Worker doesn't supply one) —
 // look it up by show id and fall back to a neutral default.
@@ -4616,16 +4710,26 @@ const PodcastListSheet = ({ open, pod, onClose, onPlay }) => {
 // =============================================================================
 // HEADLINE CARD
 // =============================================================================
-const HeadlineCard = ({ article, onOpen, libraryMatch }) => {
+const HeadlineCard = ({ article, onOpen, libraryMatch, isRead }) => {
   const sourceColor = SOURCE_COLORS[article.source] || '#a1a1aa';
+  const [imageFailed, setImageFailed] = useState(false);
+  const showImage = article.coverImage && !imageFailed;
   return (
     <button
       onClick={() => onOpen(article)}
-      className="w-full text-left p-3 flex items-start gap-3 hover:bg-white/5 active:bg-white/10 transition-colors"
+      className={`w-full text-left p-3 flex items-start gap-3 hover:bg-white/5 active:bg-white/10 transition-colors ${isRead ? 'opacity-45' : ''}`}
     >
-      <div className="w-20 h-20 rounded-xl overflow-hidden shrink-0" style={!article.coverImage ? { background: '#1d1d25' } : { background: '#0a0a0c' }}>
-        {article.coverImage && (
-          <img src={article.coverImage} alt="" loading="lazy" className="w-full h-full object-cover" />
+      <div className="w-20 h-20 rounded-xl overflow-hidden shrink-0" style={{ background: showImage ? '#0a0a0c' : `${sourceColor}26` /* ~15% alpha */ }}>
+        {showImage ? (
+          <img
+            src={article.coverImage}
+            alt=""
+            loading="lazy"
+            className="w-full h-full object-cover"
+            onError={() => setImageFailed(true)}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-3xl select-none">🎮</div>
         )}
       </div>
       <div className="min-w-0 flex-1">
@@ -4639,6 +4743,9 @@ const HeadlineCard = ({ article, onOpen, libraryMatch }) => {
             <span title={`In your library: ${libraryMatch.title}`} className="ml-1 flex items-center">
               <Icon name="star" filled className="w-3 h-3" style={{ color: '#e2b878' }} />
             </span>
+          )}
+          {isRead && (
+            <span className="ml-1 text-[9px] uppercase tracking-wider text-zinc-600 font-semibold">Read</span>
           )}
         </div>
         <div className="serif text-[15px] text-white leading-snug mt-0.5 line-clamp-2">{article.title}</div>
@@ -4683,26 +4790,62 @@ const NewsFilters = ({ active, onChange }) => (
 // =============================================================================
 // READER / PLAYER SHEET — placeholder, opens via the link-out for now
 // =============================================================================
-const ReaderSheet = ({ open, item, onClose }) => {
+const ReaderSheet = ({ open, item, onClose, onMarkRead }) => {
+  const isPodcast = !!item?.show;
+  const [article, setArticle] = useState(null);
+  const [loadingArticle, setLoadingArticle] = useState(false);
+  const [articleError, setArticleError] = useState(null);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  // Fetch the full article body when a non-podcast item opens
+  useEffect(() => {
+    if (!open || !item || isPodcast || !item.url) return;
+    setLoadingArticle(true);
+    setArticle(null);
+    setArticleError(null);
+    setImageFailed(false);
+    fetch(ARTICLE_URL(item.url))
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((data) => {
+        if (data.error) throw new Error(data.error);
+        setArticle(data);
+      })
+      .catch((e) => setArticleError(e.message || String(e)))
+      .finally(() => setLoadingArticle(false));
+  }, [open, item, isPodcast]);
+
   if (!open || !item) return null;
-  const isPodcast = !!item.show;
+  const sourceColor = SOURCE_COLORS[item.source] || '#a1a1aa';
+  const hero = article?.heroImage || item.coverImage;
+  const showHero = hero && !imageFailed;
+
+  const right = isPodcast ? (
+    <a
+      href={item._linkOut || item.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-[14px] font-semibold"
+      style={{ color: '#d4a574' }}
+    >
+      Open
+    </a>
+  ) : (
+    <button
+      onClick={() => { onMarkRead?.(articleKey(item)); onClose(); }}
+      className="text-[14px] font-semibold"
+      style={{ color: '#d4a574' }}
+    >
+      Mark read
+    </button>
+  );
+
   return (
     <Sheet
       open={open}
       onClose={onClose}
       title={isPodcast ? 'Now playing' : 'Article'}
       leftAction={<button onClick={onClose} className="text-zinc-400 text-[14px]">Close</button>}
-      rightAction={
-        <a
-          href={item._linkOut || item.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[14px] font-semibold"
-          style={{ color: '#d4a574' }}
-        >
-          Open
-        </a>
-      }
+      rightAction={right}
     >
       <div className="px-4 py-6">
         {isPodcast ? (
@@ -4717,30 +4860,95 @@ const ReaderSheet = ({ open, item, onClose }) => {
             <div className="text-[12px] text-zinc-500 mt-2">{item.latestEpisode.duration}</div>
             <div className="mt-6 glass rounded-2xl p-4">
               <p className="text-sm text-zinc-300 leading-relaxed">
-                In Phase 2 we'll embed the player here so you can listen without leaving the app.
-                For now, tap <strong className="text-white">Open</strong> above to listen on{' '}
+                Tap <strong className="text-white">Open</strong> above to listen on{' '}
                 {item._platform === 'spotify' ? 'Spotify' : 'YouTube'}.
               </p>
             </div>
           </>
         ) : (
           <>
-            {item.coverImage && (
-              <div className="rounded-2xl overflow-hidden mb-4 aspect-[16/9]">
-                <img src={item.coverImage} alt="" className="w-full h-full object-cover" />
+            {showHero ? (
+              <div className="rounded-2xl overflow-hidden mb-4 aspect-[16/9]" style={{ background: '#0a0a0c' }}>
+                <img
+                  src={hero}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  onError={() => setImageFailed(true)}
+                />
+              </div>
+            ) : (
+              <div className="rounded-2xl overflow-hidden mb-4 aspect-[16/9] flex items-center justify-center text-6xl"
+                   style={{ background: `${sourceColor}26` }}>
+                🎮
               </div>
             )}
-            <div className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: SOURCE_COLORS[item.source] || '#a1a1aa' }}>
+            <div className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: sourceColor }}>
               {item.source} · {timeAgo(item.publishedAt)}
             </div>
             <h2 className="serif text-[26px] leading-tight text-white mt-2">{item.title}</h2>
-            <p className="text-zinc-300 mt-4 leading-relaxed">{item.excerpt}</p>
-            <div className="mt-6 glass rounded-2xl p-4">
-              <p className="text-sm text-zinc-400 leading-relaxed">
-                In Phase 2 we'll render the full article here (iOS Reader-style).
-                For now, tap <strong className="text-white">Open</strong> above to read on {item.source}.
-              </p>
-            </div>
+            {(article?.byline) && (
+              <div className="text-[12px] text-zinc-500 mt-2">By {article.byline}</div>
+            )}
+
+            {loadingArticle && (
+              <div className="mt-6 space-y-3 animate-pulse">
+                <div className="h-3 w-full bg-white/5 rounded" />
+                <div className="h-3 w-11/12 bg-white/5 rounded" />
+                <div className="h-3 w-10/12 bg-white/5 rounded" />
+                <div className="h-3 w-9/12 bg-white/5 rounded" />
+              </div>
+            )}
+
+            {articleError && (
+              <div className="mt-6 glass rounded-2xl p-4">
+                <p className="text-sm text-zinc-400 leading-relaxed">
+                  Couldn't load the article body. Here's the excerpt:
+                </p>
+                <p className="text-zinc-300 mt-3 leading-relaxed">{item.excerpt}</p>
+                <a
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 inline-block text-[13px] font-semibold"
+                  style={{ color: '#d4a574' }}
+                >
+                  Read on {item.source} →
+                </a>
+              </div>
+            )}
+
+            {article && article.content && (
+              <div
+                className="article-body mt-5"
+                dangerouslySetInnerHTML={{ __html: article.content }}
+              />
+            )}
+
+            {article && !article.content && !loadingArticle && !articleError && (
+              <div className="mt-6 glass rounded-2xl p-4">
+                <p className="text-zinc-300 leading-relaxed">{item.excerpt}</p>
+                <a
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 inline-block text-[13px] font-semibold"
+                  style={{ color: '#d4a574' }}
+                >
+                  Read full article on {item.source} →
+                </a>
+              </div>
+            )}
+
+            {article && article.content && (
+              <a
+                href={item.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-8 inline-block text-[12px] text-zinc-500 hover:text-zinc-300"
+              >
+                View original on {item.source} →
+              </a>
+            )}
           </>
         )}
       </div>
@@ -4756,6 +4964,17 @@ const NewsScreen = ({ games, onSelect, tab, onTabChange }) => {
   const [filter, setFilter] = useState('all');
   const [reader, setReader] = useState(null);
   const [listPod, setListPod] = useState(null);
+  const [readArticles, setReadArticles] = useState(loadRead);
+
+  const markRead = (id) => {
+    if (!id) return;
+    setReadArticles(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      saveRead(next);
+      return next;
+    });
+  };
 
   // Live feed from the Cloudflare Worker
   const { news, loading, error, refresh, lastFetched } = useNews();
@@ -4887,6 +5106,7 @@ const NewsScreen = ({ games, onSelect, tab, onTabChange }) => {
               article={a}
               onOpen={setReader}
               libraryMatch={matchLibraryGame(a, games)}
+              isRead={readArticles.has(articleKey(a))}
             />
           ))
         )}
@@ -4898,7 +5118,12 @@ const NewsScreen = ({ games, onSelect, tab, onTabChange }) => {
         onClose={() => setListPod(null)}
         onPlay={openPodcast}
       />
-      <ReaderSheet open={!!reader} item={reader} onClose={() => setReader(null)} />
+      <ReaderSheet
+        open={!!reader}
+        item={reader}
+        onClose={() => setReader(null)}
+        onMarkRead={markRead}
+      />
     </div>
   );
 };

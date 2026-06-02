@@ -114,6 +114,17 @@ export default {
       return getNews(request, ctx, forceFresh);
     }
 
+    // Fetch + extract the main content of an article so the app can render
+    // it in-line (no link-out required). Edge-cached for a week — article
+    // content doesn't change.
+    if (url.pathname === '/article') {
+      const articleUrl = url.searchParams.get('url');
+      if (!articleUrl) {
+        return jsonResponse({ error: 'Missing url parameter' });
+      }
+      return await getArticleCached(articleUrl, ctx);
+    }
+
     // Diagnostic — shows headlines that contain Direct/State of Play, plus
     // whatever events we detected. Helpful to confirm whether a missing
     // event is a detection problem or a feed problem.
@@ -543,6 +554,125 @@ function parseEventDate(s) {
   }
 
   return null;
+}
+
+// =============================================================================
+// FULL ARTICLE FETCH + CONTENT EXTRACTION
+// =============================================================================
+async function getArticleCached(articleUrl, ctx) {
+  const cache = caches.default;
+  const cacheKey = new Request(
+    `https://cache.vgl/article-v1?url=${encodeURIComponent(articleUrl)}`
+  );
+  const cached = await cache.match(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const html = await fetchText(articleUrl);
+    const article = parseArticle(html, articleUrl);
+    const response = jsonResponse(article);
+    response.headers.set('Cache-Control', 'public, max-age=604800'); // 7 days
+    ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    return response;
+  } catch (e) {
+    return jsonResponse({ error: String(e), sourceUrl: articleUrl });
+  }
+}
+
+function parseArticle(html, sourceUrl) {
+  const title = extractMeta(html, 'og:title') || extractField(html, 'title');
+  const byline = extractMeta(html, 'article:author') || extractMeta(html, 'author');
+  const publishedAt =
+    extractMeta(html, 'article:published_time') || extractMeta(html, 'pubdate');
+  const heroImage =
+    extractMeta(html, 'og:image') || extractMeta(html, 'twitter:image');
+  const siteName = extractMeta(html, 'og:site_name');
+  const description =
+    extractMeta(html, 'og:description') || extractMeta(html, 'description');
+
+  const content = extractArticleContent(html);
+
+  return {
+    title: cleanEntities(title || ''),
+    byline: byline ? cleanEntities(byline) : null,
+    publishedAt: publishedAt || null,
+    heroImage: heroImage || null,
+    siteName: siteName ? cleanEntities(siteName) : new URL(sourceUrl).hostname,
+    description: description ? cleanEntities(description) : null,
+    content,
+    sourceUrl,
+  };
+}
+
+function extractMeta(html, name) {
+  const escName = name.replace(/[:.]/g, '\\$&');
+  const re1 = new RegExp(
+    `<meta[^>]+(?:property|name)=["']${escName}["'][^>]+content=["']([^"']+)["']`,
+    'i'
+  );
+  const re2 = new RegExp(
+    `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escName}["']`,
+    'i'
+  );
+  const m = html.match(re1) || html.match(re2);
+  return m?.[1] || null;
+}
+
+function extractArticleContent(html) {
+  // Try common content containers in order — first match wins.
+  const patterns = [
+    /<article[^>]*>([\s\S]*?)<\/article>/i,
+    /<div[^>]+class=["'][^"']*(?:c-entry-content|article-content|article__content|article-body|post-content|entry-content|story-content|content-body|article__main|m-detail--body)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    /<section[^>]+class=["'][^"']*(?:article|story)[^"']*["'][^>]*>([\s\S]*?)<\/section>/i,
+    /<main[^>]*>([\s\S]*?)<\/main>/i,
+  ];
+
+  let raw = null;
+  for (const re of patterns) {
+    const m = html.match(re);
+    if (m) {
+      raw = m[1];
+      break;
+    }
+  }
+  if (!raw) return '';
+  return cleanArticleHtml(raw);
+}
+
+function cleanArticleHtml(html) {
+  let s = html;
+  // Strip executable / dangerous content
+  s = s.replace(/<script[\s\S]*?<\/script>/gi, '');
+  s = s.replace(/<style[\s\S]*?<\/style>/gi, '');
+  s = s.replace(/<noscript[\s\S]*?<\/noscript>/gi, '');
+  s = s.replace(/<svg[\s\S]*?<\/svg>/gi, '');
+  // Strip chrome
+  s = s.replace(/<nav[\s\S]*?<\/nav>/gi, '');
+  s = s.replace(/<aside[\s\S]*?<\/aside>/gi, '');
+  s = s.replace(/<footer[\s\S]*?<\/footer>/gi, '');
+  s = s.replace(/<header[\s\S]*?<\/header>/gi, '');
+  s = s.replace(/<form[\s\S]*?<\/form>/gi, '');
+  // Strip ads / share / related panels by class hint
+  s = s.replace(
+    /<(div|section|aside)[^>]+class=["'][^"']*(?:ad-|advertisement|share|social|newsletter|related|recommended|sidebar|promo|sponsor|subscribe|signup|comment|disqus|nielsen|connatix)[^"']*["'][^>]*>[\s\S]*?<\/\1>/gi,
+    ''
+  );
+  // Strip iframes except YouTube / Vimeo embeds
+  s = s.replace(
+    /<iframe[^>]+src=["'](?!https?:\/\/(?:www\.)?(?:youtube|vimeo)\.com)[^"']*["'][^>]*>[\s\S]*?<\/iframe>/gi,
+    ''
+  );
+  // Strip event handlers, tracking attrs, inline styles, classes, IDs
+  s = s.replace(/\son\w+=["'][^"']*["']/g, '');
+  s = s.replace(/\sdata-[\w-]+=["'][^"']*["']/g, '');
+  s = s.replace(/\sstyle=["'][^"']*["']/g, '');
+  s = s.replace(/\sclass=["'][^"']*["']/g, '');
+  s = s.replace(/\sid=["'][^"']*["']/g, '');
+  // Force img src to use https and lazy load
+  s = s.replace(/<img\b/gi, '<img loading="lazy"');
+  // Collapse whitespace
+  s = s.replace(/[ \t\n]+/g, ' ').replace(/>\s+</g, '><');
+  return s.trim();
 }
 
 // =============================================================================
