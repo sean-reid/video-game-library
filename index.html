@@ -17,7 +17,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -25,7 +25,7 @@
     theme: {
       extend: {
         fontFamily: {
-          serif: ['"Instrument Serif"', 'Georgia', 'serif'],
+          serif: ['Lora', 'Georgia', 'serif'],
           sans: ['Inter', '-apple-system', 'system-ui', 'sans-serif'],
         },
         colors: {
@@ -50,7 +50,7 @@
 <style>
   html, body, #root { height: 100%; background: #0a0a0c; color: #f5f5f7; }
   body { font-family: 'Inter', -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
-  .serif { font-family: 'Instrument Serif', Georgia, serif; }
+  .serif { font-family: 'Lora', Georgia, serif; }
 
   /* Frosted glass — iOS 26 style */
   .glass {
@@ -2519,6 +2519,38 @@ const saveGames = (games) => {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(games)); } catch (e) {}
 };
 
+// Re-rank the Top 50 after any change that could affect ordering:
+// - Sort by score desc; within same score, existing rank asc acts as a
+//   stable tiebreaker (so manual rank edits stick within their score group).
+// - Games whose score has dropped below 80 are removed from the Top 50
+//   (their topListRank is cleared). The remaining games get sequential
+//   ranks 1, 2, 3, …
+// - Tier (Masterpiece / Amazing / Great) is derived from score, so the
+//   tier section in the UI shifts automatically — no extra work needed.
+const TOP_LIST_FLOOR = 80;
+const rerankTop50 = (games) => {
+  // First: clear topListRank for games that no longer qualify by score
+  const cleaned = games.map(g => {
+    if (g.topListRank != null && (g.rating?.total || 0) < TOP_LIST_FLOOR) {
+      const { topListRank: _, ...rest } = g;
+      return rest;
+    }
+    return g;
+  });
+  // Sort surviving Top 50 by score desc, tiebreaker by existing rank asc
+  const top50 = cleaned.filter(g => g.topListRank != null);
+  top50.sort((a, b) => {
+    const scoreDiff = (b.rating?.total || 0) - (a.rating?.total || 0);
+    if (scoreDiff !== 0) return scoreDiff;
+    return (a.topListRank || 9999) - (b.topListRank || 9999);
+  });
+  const newRanks = new Map();
+  top50.forEach((g, i) => newRanks.set(g.id, i + 1));
+  return cleaned.map(g =>
+    newRanks.has(g.id) ? { ...g, topListRank: newRanks.get(g.id) } : g
+  );
+};
+
 // =============================================================================
 // RAWG INTEGRATION
 // NOTE: Key is inline because this is a personal app on public GitHub Pages.
@@ -4591,7 +4623,7 @@ const HeadlineCard = ({ article, onOpen, libraryMatch }) => {
       onClick={() => onOpen(article)}
       className="w-full text-left p-3 flex items-start gap-3 hover:bg-white/5 active:bg-white/10 transition-colors"
     >
-      <div className="w-20 h-20 rounded-xl bg-ink-800 overflow-hidden shrink-0 grain" style={!article.coverImage ? { background: 'linear-gradient(135deg, #27272a 0%, #18181b 100%)' } : {}}>
+      <div className="w-20 h-20 rounded-xl overflow-hidden shrink-0" style={!article.coverImage ? { background: '#1d1d25' } : { background: '#0a0a0c' }}>
         {article.coverImage && (
           <img src={article.coverImage} alt="" loading="lazy" className="w-full h-full object-cover" />
         )}
@@ -4621,6 +4653,7 @@ const HeadlineCard = ({ article, onOpen, libraryMatch }) => {
 // =============================================================================
 const NEWS_FILTERS = [
   { id: 'all',         label: 'All' },
+  { id: 'library',     label: 'In Library' },
   { id: 'nintendo',    label: 'Nintendo' },
   { id: 'playstation', label: 'PlayStation' },
   { id: 'review',      label: 'Reviews' },
@@ -4743,10 +4776,11 @@ const NewsScreen = ({ games, onSelect, tab, onTabChange }) => {
 
   const filtered = useMemo(() => {
     if (filter === 'all') return headlines;
+    if (filter === 'library') return headlines.filter(a => matchLibraryGame(a, games));
     if (filter === 'nintendo') return headlines.filter(a => (a.platforms || []).includes('nintendo') || a.source === 'Nintendo Life');
     if (filter === 'playstation') return headlines.filter(a => (a.platforms || []).includes('playstation') || a.source === 'PlayStation Blog' || a.source === 'Push Square');
     return headlines.filter(a => a.category === filter);
-  }, [filter, headlines]);
+  }, [filter, headlines, games]);
 
   const openPodcast = (pod, episode, platform) => {
     setReader({
@@ -4944,10 +4978,10 @@ const App = () => {
   const enrichStartedRef = useRef(false);
 
   const existingIds = useMemo(() => new Set(games.map(g => g.id)), [games]);
-  const addGame = (g) => setGames(prev => [...prev, g]);
-  const updateGame = (g) => setGames(prev => prev.map(x => x.id === g.id ? g : x));
+  const addGame = (g) => setGames(prev => rerankTop50([...prev, g]));
+  const updateGame = (g) => setGames(prev => rerankTop50(prev.map(x => x.id === g.id ? g : x)));
   const deleteGame = (id) => {
-    setGames(prev => prev.filter(x => x.id !== id));
+    setGames(prev => rerankTop50(prev.filter(x => x.id !== id)));
     if (selectedId === id) setSelectedId(null);
   };
   const editGame = useMemo(() => games.find(g => g.id === editId), [games, editId]);
