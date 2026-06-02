@@ -4183,42 +4183,214 @@ const EditGameSheet = ({ open, game, onClose, onSave, onDelete }) => {
 // BACKUP & DATA SHEET — single entry point for export / import (and Gist sync
 // when we wire that up)
 // =============================================================================
-const BackupSheet = ({ open, onClose, onExport, onImport }) => (
-  <Sheet
-    open={open}
-    onClose={onClose}
-    title="Backup & data"
-    leftAction={<button onClick={onClose} className="text-zinc-400 text-[14px]">Close</button>}
-  >
-    <div className="px-4 py-6 space-y-3">
-      <button
-        onClick={() => { onExport(); onClose(); }}
-        className="w-full glass rounded-2xl p-4 text-left flex items-start gap-3 hover:bg-white/5 active:bg-white/10 transition-colors"
-      >
-        <Icon name="download" className="w-5 h-5 mt-0.5 text-zinc-300" />
-        <div className="min-w-0 flex-1">
-          <div className="serif text-[16px] text-white">Export library</div>
-          <div className="text-[12px] text-zinc-400 mt-0.5">
-            Download your library as a JSON file. Good for one-off backups to iCloud Files.
-          </div>
-        </div>
-      </button>
+const BackupSheet = ({ open, onClose, onExport, onImport, games, setGames, gistConfig, setGistConfig }) => {
+  const [tokenInput, setTokenInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState('');
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
-      <button
-        onClick={() => { onImport(); onClose(); }}
-        className="w-full glass rounded-2xl p-4 text-left flex items-start gap-3 hover:bg-white/5 active:bg-white/10 transition-colors"
-      >
-        <Icon name="upload" className="w-5 h-5 mt-0.5 text-zinc-300" />
-        <div className="min-w-0 flex-1">
-          <div className="serif text-[16px] text-white">Import from file</div>
-          <div className="text-[12px] text-zinc-400 mt-0.5">
-            Replace your library with a previously-exported JSON file.
+  useEffect(() => {
+    if (open) { setError(null); setSuccess(null); setTokenInput(''); }
+  }, [open]);
+
+  const setupGist = async () => {
+    if (!tokenInput.trim()) return;
+    setBusy(true); setBusyAction('setup'); setError(null); setSuccess(null);
+    try {
+      const gist = await createGist(tokenInput.trim(), games);
+      const config = {
+        token: tokenInput.trim(),
+        gistId: gist.id,
+        gistUrl: gist.html_url,
+        lastSyncedAt: Date.now(),
+      };
+      saveGistConfig(config);
+      setGistConfig(config);
+      setTokenInput('');
+      setSuccess('Connected! Your library is backed up.');
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally { setBusy(false); setBusyAction(''); }
+  };
+
+  const syncNow = async () => {
+    if (!gistConfig) return;
+    setBusy(true); setBusyAction('sync'); setError(null); setSuccess(null);
+    try {
+      await updateGist(gistConfig.token, gistConfig.gistId, games);
+      const next = { ...gistConfig, lastSyncedAt: Date.now() };
+      saveGistConfig(next);
+      setGistConfig(next);
+      setSuccess('Synced.');
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally { setBusy(false); setBusyAction(''); }
+  };
+
+  const restore = async () => {
+    if (!gistConfig) return;
+    if (!window.confirm('Replace your local library with the version stored in your Gist? Your current local data will be lost (export first if you want a safety copy).')) return;
+    setBusy(true); setBusyAction('restore'); setError(null); setSuccess(null);
+    try {
+      const data = await fetchGistLibrary(gistConfig.token, gistConfig.gistId);
+      setGames(data);
+      const next = { ...gistConfig, lastSyncedAt: Date.now() };
+      saveGistConfig(next);
+      setGistConfig(next);
+      setSuccess(`Restored ${data.length} games.`);
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally { setBusy(false); setBusyAction(''); }
+  };
+
+  const disconnect = () => {
+    if (!window.confirm('Disconnect Gist sync? Your Gist will remain on GitHub but the app will stop syncing to it. You can reconnect anytime.')) return;
+    clearGistConfig();
+    setGistConfig(null);
+    setSuccess('Disconnected.');
+  };
+
+  return (
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Backup & data"
+      leftAction={<button onClick={onClose} className="text-zinc-400 text-[14px]">Close</button>}
+    >
+      <div className="px-4 py-6 space-y-3">
+        {/* GitHub Gist sync */}
+        {gistConfig ? (
+          <div className="glass rounded-2xl p-4">
+            <div className="flex items-start gap-3">
+              <span className="text-[18px] mt-0.5">☁️</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <div className="serif text-[16px] text-white">GitHub Gist sync</div>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                </div>
+                <div className="text-[12px] text-zinc-400 mt-0.5">
+                  Auto-synced{' '}
+                  <span className="tabular-nums">
+                    {timeAgo(new Date(gistConfig.lastSyncedAt).toISOString())}
+                  </span>
+                  . Saves 5 sec after every change.
+                </div>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <button
+                    onClick={syncNow}
+                    disabled={busy}
+                    className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-[12px] font-medium disabled:opacity-50"
+                  >
+                    {busyAction === 'sync' ? 'Syncing…' : 'Sync now'}
+                  </button>
+                  <button
+                    onClick={restore}
+                    disabled={busy}
+                    className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-[12px] font-medium disabled:opacity-50"
+                  >
+                    {busyAction === 'restore' ? 'Restoring…' : 'Restore from Gist'}
+                  </button>
+                  <button
+                    onClick={disconnect}
+                    disabled={busy}
+                    className="px-3 py-1.5 rounded-full text-[12px] font-medium text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                  >
+                    Disconnect
+                  </button>
+                </div>
+                {gistConfig.gistUrl && (
+                  <a
+                    href={gistConfig.gistUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-zinc-500 underline mt-2.5 inline-block"
+                  >
+                    View gist on GitHub →
+                  </a>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      </button>
-    </div>
-  </Sheet>
-);
+        ) : (
+          <div className="glass rounded-2xl p-4">
+            <div className="flex items-start gap-3">
+              <span className="text-[18px] mt-0.5">☁️</span>
+              <div className="min-w-0 flex-1">
+                <div className="serif text-[16px] text-white">GitHub Gist sync</div>
+                <div className="text-[12px] text-zinc-400 mt-0.5 mb-3 leading-relaxed">
+                  Auto-sync your library to a private GitHub Gist. Survives clearing Safari data, restores easily to a new device. Paste a GitHub token with{' '}
+                  <strong className="text-zinc-300">Gists: Read &amp; write</strong> permission.
+                </div>
+                <input
+                  type="password"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="github_pat_… or ghp_…"
+                  className="w-full bg-white/5 rounded-xl px-3 py-2 text-[14px] text-white placeholder-zinc-500 outline-none focus:bg-white/10 mb-2 font-mono"
+                />
+                <button
+                  onClick={setupGist}
+                  disabled={busy || !tokenInput.trim()}
+                  className="w-full py-2 rounded-xl bg-white text-ink-950 text-[13px] font-semibold disabled:opacity-40"
+                >
+                  {busyAction === 'setup' ? 'Setting up…' : 'Set up backup'}
+                </button>
+                <a
+                  href="https://github.com/settings/personal-access-tokens/new"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-zinc-500 mt-2 inline-block underline"
+                >
+                  Generate a token on GitHub →
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Status messages */}
+        {error && (
+          <div className="rounded-2xl bg-red-500/10 border border-red-500/20 p-3 text-[12px] text-red-300 leading-relaxed">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="rounded-2xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-[12px] text-emerald-300">
+            {success}
+          </div>
+        )}
+
+        {/* Manual export/import */}
+        <button
+          onClick={() => { onExport(); onClose(); }}
+          className="w-full glass rounded-2xl p-4 text-left flex items-start gap-3 hover:bg-white/5 active:bg-white/10 transition-colors"
+        >
+          <Icon name="download" className="w-5 h-5 mt-0.5 text-zinc-300" />
+          <div className="min-w-0 flex-1">
+            <div className="serif text-[16px] text-white">Export library</div>
+            <div className="text-[12px] text-zinc-400 mt-0.5">
+              Download your library as a JSON file. Good for one-off backups to iCloud Files.
+            </div>
+          </div>
+        </button>
+
+        <button
+          onClick={() => { onImport(); onClose(); }}
+          className="w-full glass rounded-2xl p-4 text-left flex items-start gap-3 hover:bg-white/5 active:bg-white/10 transition-colors"
+        >
+          <Icon name="upload" className="w-5 h-5 mt-0.5 text-zinc-300" />
+          <div className="min-w-0 flex-1">
+            <div className="serif text-[16px] text-white">Import from file</div>
+            <div className="text-[12px] text-zinc-400 mt-0.5">
+              Replace your library with a previously-exported JSON file.
+            </div>
+          </div>
+        </button>
+      </div>
+    </Sheet>
+  );
+};
 
 // =============================================================================
 // JSON EXPORT + IMPORT
@@ -4234,6 +4406,79 @@ const exportLibrary = (games) => {
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
+
+// =============================================================================
+// GITHUB GIST SYNC
+// Your library JSON lives in a private gist on YOUR GitHub account.
+// Token + gist ID live in localStorage; nothing leaves your phone except
+// the writes to your own GitHub.
+// =============================================================================
+const GIST_KEY = 'vgl.gistSync.v1';
+const GIST_FILENAME = 'video-game-library.json';
+
+const loadGistConfig = () => {
+  try {
+    const raw = localStorage.getItem(GIST_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+};
+const saveGistConfig = (config) => {
+  try { localStorage.setItem(GIST_KEY, JSON.stringify(config)); } catch {}
+};
+const clearGistConfig = () => { try { localStorage.removeItem(GIST_KEY); } catch {} };
+
+async function ghRequest(token, path, init = {}) {
+  const res = await fetch(`https://api.github.com${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+      ...(init.headers || {}),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`GitHub ${res.status}: ${text.slice(0, 200) || res.statusText}`);
+  }
+  return res.json();
+}
+
+async function createGist(token, games) {
+  return ghRequest(token, '/gists', {
+    method: 'POST',
+    body: JSON.stringify({
+      description: 'Video Game Library backup',
+      public: false,
+      files: {
+        [GIST_FILENAME]: { content: JSON.stringify(games, null, 2) },
+      },
+    }),
+  });
+}
+
+async function updateGist(token, gistId, games) {
+  return ghRequest(token, `/gists/${gistId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      files: {
+        [GIST_FILENAME]: { content: JSON.stringify(games, null, 2) },
+      },
+    }),
+  });
+}
+
+async function fetchGistLibrary(token, gistId) {
+  const gist = await ghRequest(token, `/gists/${gistId}`);
+  const file = gist.files?.[GIST_FILENAME];
+  if (!file) throw new Error(`No ${GIST_FILENAME} in this gist`);
+  const content = file.truncated ? await (await fetch(file.raw_url)).text() : file.content;
+  const data = JSON.parse(content);
+  if (!Array.isArray(data)) throw new Error('Gist contents are not a valid library array');
+  return data;
+}
 
 const importLibrary = (setGames) => {
   const input = document.createElement('input');
@@ -5240,6 +5485,26 @@ const App = () => {
   const [addOpen, setAddOpen] = useState(false);
   const [editId, setEditId] = useState(null);
   const [backupOpen, setBackupOpen] = useState(false);
+  const [gistConfig, setGistConfig] = useState(loadGistConfig);
+
+  // Auto-sync to Gist 5 seconds after the last games change (debounced).
+  // Skips the very first effect run so we don't immediately push on mount.
+  const skipFirstGistSync = useRef(true);
+  useEffect(() => {
+    if (skipFirstGistSync.current) { skipFirstGistSync.current = false; return; }
+    if (!gistConfig) return;
+    const timer = setTimeout(async () => {
+      try {
+        await updateGist(gistConfig.token, gistConfig.gistId, games);
+        const next = { ...gistConfig, lastSyncedAt: Date.now() };
+        saveGistConfig(next);
+        setGistConfig(next);
+      } catch (e) {
+        console.warn('Gist auto-sync failed:', e.message || e);
+      }
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [games, gistConfig?.token, gistConfig?.gistId]);
   const [enrichStatus, setEnrichStatus] = useState({ active: false, done: 0, total: 0 });
   const enrichStartedRef = useRef(false);
 
@@ -5386,6 +5651,10 @@ const App = () => {
         onClose={() => setBackupOpen(false)}
         onExport={() => exportLibrary(games)}
         onImport={() => importLibrary(setGames)}
+        games={games}
+        setGames={setGames}
+        gistConfig={gistConfig}
+        setGistConfig={setGistConfig}
       />
     </div>
   );
