@@ -5864,7 +5864,7 @@ const computeStats = (games) => {
     yearMap[y].total++;
   });
   const byYearTiers = Object.values(yearMap)
-    .sort((a, b) => parseInt(a.label, 10) - parseInt(b.label, 10));
+    .sort((a, b) => parseInt(b.label, 10) - parseInt(a.label, 10));
 
   // BY PLATFORM — same stacked-tier shape, sorted by total desc
   const platformMap = {};
