@@ -2694,6 +2694,195 @@ const searchRawg = async (title, year) => {
   return results[0];
 };
 
+// Fetch RAWG detail for a single game (developers + publishers are NOT in
+// the search response — we need this endpoint to get them).
+const fetchRawgDetail = async (rawgId) => {
+  const url = `${RAWG_BASE}/games/${rawgId}?key=${RAWG_KEY}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`RAWG detail ${res.status}`);
+  return res.json();
+};
+
+// =============================================================================
+// RECOMMENDATIONS — "For you" engine
+// Builds a taste profile from the library (platforms by score sum, devs/
+// publishers by Top 50 presence, genres by score sum) and queries RAWG for
+// high-Metacritic candidates that match the profile. Results are cached and
+// filtered against owned + dismissed sets at render time.
+// =============================================================================
+const RECS_KEY = 'vgl.recs.v1';
+const RECS_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const REC_METACRITIC_FLOOR = 75;
+
+const loadRecs = () => {
+  try {
+    const raw = localStorage.getItem(RECS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        fetchedAt: parsed.fetchedAt || 0,
+        candidates: parsed.candidates || [],
+        dismissedIds: parsed.dismissedIds || [],
+      };
+    }
+  } catch {}
+  return { fetchedAt: 0, candidates: [], dismissedIds: [] };
+};
+const saveRecs = (recs) => {
+  try { localStorage.setItem(RECS_KEY, JSON.stringify(recs)); } catch {}
+};
+
+// RAWG platform IDs (from /platforms). Only the ones we care about.
+const RAWG_PLATFORM_IDS = {
+  'PS5': 187, 'PS4': 18, 'PS3': 16, 'PS2': 15, 'PS': 27,
+  'Switch 2': 832, 'Switch': 7,
+  'Wii U': 10, 'Wii': 11, 'N64': 83, 'DS': 9, '3DS': 8,
+  'GBA': 24, 'GBC': 26, 'Gameboy': 26, 'GameCube': 105,
+  'NES': 49, 'SNES': 79,
+  'Xbox Series': 186, 'Xbox One': 1, 'Xbox 360': 14, 'Xbox': 80,
+  'PC': 4, 'Mac': 5, 'Linux': 6, 'iOS': 3, 'Android': 21,
+};
+
+const topN = (weights, n) =>
+  Object.entries(weights)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([k]) => k);
+
+const buildTasteProfile = (games) => {
+  const platformWeights = {};
+  const genreWeights = {};
+  const developerWeights = {};
+  const publisherWeights = {};
+
+  games.forEach(g => {
+    const score = g.rating?.total || 0;
+    const isTop50 = g.topListRank != null;
+
+    if ((g.state === 'played' || g.state === 'playing') && score > 0) {
+      const plat = primaryPlatform(g);
+      if (plat) platformWeights[plat] = (platformWeights[plat] || 0) + score;
+    }
+
+    if (score > 0 && Array.isArray(g.rawgGenres)) {
+      g.rawgGenres.forEach(slug => {
+        genreWeights[slug] = (genreWeights[slug] || 0) + score + (isTop50 ? 50 : 0);
+      });
+    }
+
+    if (Array.isArray(g.rawgDevelopers)) {
+      g.rawgDevelopers.forEach(slug => {
+        developerWeights[slug] = (developerWeights[slug] || 0) + 1 + (isTop50 ? 3 : 0);
+      });
+    }
+    if (Array.isArray(g.rawgPublishers)) {
+      g.rawgPublishers.forEach(slug => {
+        publisherWeights[slug] = (publisherWeights[slug] || 0) + 1 + (isTop50 ? 3 : 0);
+      });
+    }
+  });
+
+  return {
+    platformWeights, genreWeights, developerWeights, publisherWeights,
+    topPlatforms:   topN(platformWeights, 5),
+    topGenres:      topN(genreWeights, 4),
+    topDevelopers:  topN(developerWeights, 6),
+    topPublishers:  topN(publisherWeights, 6),
+  };
+};
+
+// One-time backfill: Top 50 games need devs/publishers for the profile.
+// Pulls /games/{id} detail per game and patches them in. Callers should
+// pace this — we await each call before the next.
+const enrichTop50Detail = async (games, applyPatch) => {
+  const targets = games.filter(g =>
+    g.topListRank != null && g.rawgId &&
+    (!Array.isArray(g.rawgDevelopers) || !Array.isArray(g.rawgPublishers))
+  );
+  for (const g of targets) {
+    try {
+      const detail = await fetchRawgDetail(g.rawgId);
+      applyPatch(g.id, {
+        rawgDevelopers: (detail.developers || []).map(d => d.slug).filter(Boolean),
+        rawgPublishers: (detail.publishers || []).map(p => p.slug).filter(Boolean),
+        rawgGenres: (detail.genres || []).map(genre => genre.slug).filter(Boolean),
+        rawgMetacritic: detail.metacritic || null,
+      });
+    } catch (e) {
+      console.warn('RAWG detail miss for', g.title, e.message);
+    }
+    await new Promise(r => setTimeout(r, 80));
+  }
+  return targets.length;
+};
+
+// Normalize a RAWG game record into our compact candidate shape (kept slim
+// because we cache it in localStorage).
+const candidateFromRawg = (r) => ({
+  rawgId: r.id,
+  slug: r.slug,
+  title: r.name,
+  year: yearOf(r.released),
+  released: r.released || null,
+  coverImage: r.background_image || null,
+  platforms: (r.platforms || []).map(p => p.platform?.name).filter(Boolean),
+  genres: (r.genres || []).map(genre => genre.slug).filter(Boolean),
+  metacritic: r.metacritic || null,
+  playtime: r.playtime || null,
+});
+
+// Score a candidate against the user's taste profile.
+const scoreCandidate = (c, profile) => {
+  let s = (c.metacritic || 0) / 5; // Metacritic is the strongest single signal
+  c.platforms.forEach(p => {
+    const sp = shortPlatform(p);
+    if (profile.platformWeights[sp]) s += profile.platformWeights[sp] / 50;
+  });
+  c.genres.forEach(g => {
+    if (profile.genreWeights[g]) s += profile.genreWeights[g] / 50;
+  });
+  return s;
+};
+
+// Query RAWG with a few different filter sets and merge — gives variety
+// rather than only Studio X's whole catalog.
+const fetchRecommendations = async (profile) => {
+  const platformIds = profile.topPlatforms
+    .map(p => RAWG_PLATFORM_IDS[p])
+    .filter(Boolean)
+    .join(',');
+  const baseParams = `key=${RAWG_KEY}&metacritic=${REC_METACRITIC_FLOOR},100&page_size=20`
+    + (platformIds ? `&platforms=${platformIds}` : '');
+
+  const queries = [];
+  if (profile.topDevelopers.length) {
+    queries.push(`${RAWG_BASE}/games?${baseParams}&developers=${profile.topDevelopers.join(',')}&ordering=-metacritic`);
+  }
+  if (profile.topPublishers.length) {
+    queries.push(`${RAWG_BASE}/games?${baseParams}&publishers=${profile.topPublishers.join(',')}&ordering=-metacritic`);
+  }
+  if (profile.topGenres.length) {
+    queries.push(`${RAWG_BASE}/games?${baseParams}&genres=${profile.topGenres.join(',')}&ordering=-rating`);
+  }
+  if (queries.length === 0) return [];
+
+  const buckets = await Promise.all(queries.map(async (url) => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.results || [];
+    } catch { return []; }
+  }));
+
+  const seen = new Map();
+  buckets.flat().forEach(r => { if (!seen.has(r.id)) seen.set(r.id, r); });
+  const candidates = [...seen.values()].map(candidateFromRawg);
+  candidates.forEach(c => { c._score = scoreCandidate(c, profile); });
+  candidates.sort((a, b) => b._score - a._score);
+  return candidates.slice(0, 30);
+};
+
 // =============================================================================
 // ICONS
 // =============================================================================
@@ -3018,7 +3207,7 @@ const ListView = ({ groups, formatRight, formatSubtitle, onSelect, accentColor =
 const COVER_FLOW_LEFT_PAD = 20; // matches px-5 of the section header
 const COVER_FLOW_GAP = 8;       // tighter spacing — back cards stack closer
 
-const CoverFlowRow = ({ games, onSelect, cardWidth = 168, flowKey }) => {
+const CoverFlowRow = ({ items, renderItem, idKey = 'id', cardWidth = 168, flowKey }) => {
   const containerRef = useRef(null);
   const cardRefs = useRef({});
 
@@ -3069,7 +3258,7 @@ const CoverFlowRow = ({ games, onSelect, cardWidth = 168, flowKey }) => {
     const c = containerRef.current;
     const inner = innerRef.current;
     if (!c || !inner) return;
-    const n = games.length;
+    const n = items.length;
     const naturalContent = n * cardWidth + Math.max(0, n - 1) * COVER_FLOW_GAP;
     // Trailing room = clientWidth - cardWidth so the last card can scroll
     // its left edge to focus (the right side becomes empty paddingLeft-style).
@@ -3101,7 +3290,7 @@ const CoverFlowRow = ({ games, onSelect, cardWidth = 168, flowKey }) => {
     });
     ro.observe(container);
     return () => { container.removeEventListener('scroll', onScroll); ro.disconnect(); };
-  }, [games]);
+  }, [items]);
 
   return (
     <div
@@ -3120,22 +3309,25 @@ const CoverFlowRow = ({ games, onSelect, cardWidth = 168, flowKey }) => {
       }}
     >
       <div ref={innerRef} className="flex items-center" style={{ gap: `${COVER_FLOW_GAP}px` }}>
-        {games.map(g => (
-          <div
-            key={g.id}
-            ref={el => { cardRefs.current[g.id] = el; }}
-            className="shrink-0"
-            style={{
-              width: `${cardWidth}px`,
-              scrollSnapAlign: 'start',
-              transition: 'transform 140ms ease-out, opacity 140ms ease-out',
-              transformOrigin: 'left center',
-              touchAction: 'manipulation',
-            }}
-          >
-            <GameCard game={g} onClick={() => onSelect(g)} />
-          </div>
-        ))}
+        {items.map(item => {
+          const id = item[idKey];
+          return (
+            <div
+              key={id}
+              ref={el => { cardRefs.current[id] = el; }}
+              className="shrink-0"
+              style={{
+                width: `${cardWidth}px`,
+                scrollSnapAlign: 'start',
+                transition: 'transform 140ms ease-out, opacity 140ms ease-out',
+                transformOrigin: 'left center',
+                touchAction: 'manipulation',
+              }}
+            >
+              {renderItem(item)}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -3162,7 +3354,11 @@ const Top50View = ({ games, onSelect }) => {
             {group.key}
             <span className="text-zinc-500 text-[14px] ml-2 tabular-nums">{group.games.length}</span>
           </div>
-          <CoverFlowRow games={group.games} onSelect={onSelect} flowKey={`top50-${group.key}`} />
+          <CoverFlowRow
+            items={group.games}
+            renderItem={g => <GameCard game={g} onClick={() => onSelect(g)} />}
+            flowKey={`top50-${group.key}`}
+          />
         </div>
       ))}
     </div>
@@ -3216,7 +3412,11 @@ const UpcomingView = ({ games, onSelect }) => {
             {g.key}
             <span className="text-zinc-500 text-[14px] ml-2 tabular-nums">{g.games.length}</span>
           </div>
-          <CoverFlowRow games={g.games} onSelect={onSelect} flowKey={`upcoming-${g.key}`} />
+          <CoverFlowRow
+            items={g.games}
+            renderItem={x => <GameCard game={x} onClick={() => onSelect(x)} />}
+            flowKey={`upcoming-${g.key}`}
+          />
         </div>
       ))}
     </div>
@@ -3270,15 +3470,280 @@ const RumoredView = ({ games, onSelect, onReorder }) => {
   );
 };
 
-const RecommendedView = ({ games, onSelect }) => {
-  const list = useMemo(() => {
+// Compact card for a RAWG candidate (matches GameCard visual language but
+// shows a Metacritic badge in the top-left instead of state/rank). Tap
+// opens the action sheet — save for later or dismiss.
+const RecCandidateCard = ({ candidate, onClick }) => {
+  const cover = candidate.coverImage;
+  const plat = shortPlatform(pickBestPlatform(candidate.platforms));
+  const metaLine = [candidate.year, plat].filter(Boolean).join(' · ');
+  const mc = candidate.metacritic;
+  const mcColor = mc >= 90 ? '#e2b878' : mc >= 80 ? '#a8b4c0' : '#b87349';
+
+  return (
+    <button
+      onClick={onClick}
+      className="relative group text-left w-full aspect-[3/4] rounded-2xl overflow-hidden grain"
+      style={cover ? { background: '#0a0a0c' } : { background: gradientFor({ title: candidate.title, platform: plat }) }}
+    >
+      {cover && (
+        <img src={cover} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+      )}
+      {cover && (
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/20" />
+      )}
+      <div className="absolute inset-0 flex flex-col justify-end p-3 gap-1.5">
+        <div className="flex items-center justify-between gap-2">
+          {mc ? (
+            <div className="glass-light rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums" style={{ color: mcColor }}>
+              {mc}
+            </div>
+          ) : <div />}
+          <div />
+        </div>
+        <div className="glass rounded-xl px-3 py-2.5">
+          <div className="serif text-[17px] leading-[1.1] text-white line-clamp-2">{candidate.title}</div>
+          {metaLine && (
+            <div className="text-[10px] uppercase tracking-wide text-zinc-400 font-medium leading-tight mt-1.5">
+              {metaLine}
+            </div>
+          )}
+        </div>
+      </div>
+    </button>
+  );
+};
+
+// Bottom action sheet shown when a "For you" card is tapped.
+const RecActionSheet = ({ candidate, onClose, onSave, onDismiss }) => {
+  useEffect(() => {
+    if (!candidate) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [candidate]);
+  if (!candidate) return null;
+  const plat = shortPlatform(pickBestPlatform(candidate.platforms));
+  const metaLine = [candidate.year, plat].filter(Boolean).join(' · ');
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative mt-auto bg-ink-950 rounded-t-3xl border-t border-white/10 max-w-md mx-auto w-full pb-safe">
+        <div className="flex justify-center pt-2 pb-1">
+          <div className="w-9 h-1 rounded-full bg-white/15" />
+        </div>
+        <div className="px-5 pt-3 pb-4 flex items-center gap-3 border-b border-white/5">
+          <div className="w-14 h-[72px] rounded-lg overflow-hidden shrink-0" style={candidate.coverImage ? { background: '#0a0a0c' } : { background: gradientFor({ title: candidate.title, platform: plat }) }}>
+            {candidate.coverImage && (
+              <img src={candidate.coverImage} alt="" className="w-full h-full object-cover" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="serif text-[18px] leading-tight text-white line-clamp-2">{candidate.title}</div>
+            <div className="text-[11px] uppercase tracking-wider text-zinc-500 font-medium mt-1">
+              {metaLine}
+              {candidate.metacritic && <span className="ml-2 text-zinc-400">MC {candidate.metacritic}</span>}
+            </div>
+          </div>
+        </div>
+        <div className="p-3 flex flex-col gap-2">
+          <button
+            onClick={onSave}
+            className="w-full rounded-2xl bg-white text-ink-950 py-3 text-[15px] font-medium"
+          >
+            Save for later
+          </button>
+          <button
+            onClick={onDismiss}
+            className="w-full rounded-2xl glass-light text-zinc-200 py-3 text-[15px] font-medium"
+          >
+            Dismiss
+          </button>
+          <button
+            onClick={onClose}
+            className="w-full rounded-2xl text-zinc-500 py-3 text-[14px]"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Convert a RAWG candidate into a library Game with state='recommended'
+const candidateToGame = (c) => ({
+  id: c.rawgId ? `rawg-${c.rawgId}` : `manual-${Date.now()}`,
+  title: c.title,
+  state: 'recommended',
+  notes: '',
+  coverImage: c.coverImage || null,
+  rawgId: c.rawgId,
+  rawgReleased: c.released || null,
+  rawgPlatforms: c.platforms || [],
+  rawgPlaytime: c.playtime || null,
+  rawgGenres: c.genres || [],
+  rawgMetacritic: c.metacritic || null,
+  rawgChecked: true,
+  year: c.year || undefined,
+});
+
+const RecommendedView = ({ games, onSelect, addGame, applyPatchToGame }) => {
+  const savedList = useMemo(() => {
     const ls = games.filter(g => g.state === 'recommended');
     ls.sort((a, b) => (primaryYear(b) || 0) - (primaryYear(a) || 0));
     return ls;
   }, [games]);
+
+  const [recsState, setRecsState] = useState(loadRecs);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [activeCandidate, setActiveCandidate] = useState(null);
+  const refreshStartedRef = useRef(false);
+
+  const ownedRawgIds = useMemo(
+    () => new Set(games.map(g => g.rawgId).filter(Boolean)),
+    [games]
+  );
+  const dismissedSet = useMemo(
+    () => new Set(recsState.dismissedIds),
+    [recsState.dismissedIds]
+  );
+
+  const forYou = useMemo(() =>
+    recsState.candidates
+      .filter(c => !ownedRawgIds.has(c.rawgId) && !dismissedSet.has(c.rawgId))
+      .slice(0, 20),
+    [recsState.candidates, ownedRawgIds, dismissedSet]
+  );
+
+  const refresh = async () => {
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      // One-time backfill of dev/publisher detail for Top 50 (free for repeat visits)
+      await enrichTop50Detail(games, applyPatchToGame);
+      // buildTasteProfile reads from `games` prop; since applyPatchToGame
+      // mutates state asynchronously, we re-read from latest source by
+      // refetching from window storage as a safety net.
+      let liveGames = games;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) liveGames = JSON.parse(raw);
+      } catch {}
+      const profile = buildTasteProfile(liveGames);
+      const candidates = await fetchRecommendations(profile);
+      const next = { ...recsState, fetchedAt: Date.now(), candidates };
+      setRecsState(next);
+      saveRecs(next);
+    } catch (e) {
+      setError(e.message || 'Could not load recommendations');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Auto-refresh on first mount if cache is empty or stale
+  useEffect(() => {
+    if (refreshStartedRef.current) return;
+    refreshStartedRef.current = true;
+    const stale = !recsState.fetchedAt || (Date.now() - recsState.fetchedAt > RECS_TTL_MS);
+    if (stale || recsState.candidates.length === 0) {
+      refresh();
+    }
+  }, []);
+
+  const handleSave = () => {
+    if (!activeCandidate) return;
+    const g = candidateToGame(activeCandidate);
+    if (!ownedRawgIds.has(g.rawgId)) addGame(g);
+    setActiveCandidate(null);
+  };
+  const handleDismiss = () => {
+    if (!activeCandidate) return;
+    const next = {
+      ...recsState,
+      dismissedIds: [...new Set([...recsState.dismissedIds, activeCandidate.rawgId])],
+    };
+    setRecsState(next);
+    saveRecs(next);
+    setActiveCandidate(null);
+  };
+
+  const lastFetchedLabel = recsState.fetchedAt
+    ? new Date(recsState.fetchedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : '';
+
   return (
-    <div className="px-4 pb-32 grid grid-cols-2 gap-3">
-      {list.map(g => <GameCard key={g.id} game={g} onClick={() => onSelect(g)} />)}
+    <div className="space-y-5 pb-32">
+      {/* FOR YOU — RAWG-driven */}
+      <div>
+        <div className="flex items-end justify-between px-5 mb-1">
+          <div className="serif text-[22px]" style={{ color: '#d4a574' }}>
+            For you
+            {forYou.length > 0 && (
+              <span className="text-zinc-500 text-[14px] ml-2 tabular-nums">{forYou.length}</span>
+            )}
+          </div>
+          <button
+            onClick={refresh}
+            disabled={loading}
+            className="glass-light rounded-full px-3 py-1 text-[11px] uppercase tracking-wider text-zinc-300 font-medium disabled:opacity-50"
+          >
+            {loading ? 'Loading…' : (lastFetchedLabel ? `Refresh · ${lastFetchedLabel}` : 'Refresh')}
+          </button>
+        </div>
+        {error && (
+          <div className="px-5 text-[12px] text-rose-300/80">{error}</div>
+        )}
+        {loading && forYou.length === 0 ? (
+          <div className="px-5 py-6 text-[12px] text-zinc-500">
+            Reading your library… fetching matching games from RAWG.
+          </div>
+        ) : forYou.length === 0 ? (
+          <div className="px-5 text-[12px] text-zinc-500">
+            {error ? '' : 'No matches yet — rate more games to build a profile.'}
+          </div>
+        ) : (
+          <CoverFlowRow
+            items={forYou}
+            idKey="rawgId"
+            renderItem={c => (
+              <RecCandidateCard candidate={c} onClick={() => setActiveCandidate(c)} />
+            )}
+            flowKey="recs-foryou"
+          />
+        )}
+      </div>
+
+      {/* SAVED FOR LATER — existing manual list */}
+      <div>
+        <div className="serif text-[22px] mb-1 px-5" style={{ color: '#d4a574' }}>
+          Saved for later
+          {savedList.length > 0 && (
+            <span className="text-zinc-500 text-[14px] ml-2 tabular-nums">{savedList.length}</span>
+          )}
+        </div>
+        {savedList.length === 0 ? (
+          <div className="px-5 text-[12px] text-zinc-500">
+            Tap a "For you" card to save it here.
+          </div>
+        ) : (
+          <CoverFlowRow
+            items={savedList}
+            renderItem={g => <GameCard game={g} onClick={() => onSelect(g)} />}
+            flowKey="recs-saved"
+          />
+        )}
+      </div>
+
+      <RecActionSheet
+        candidate={activeCandidate}
+        onClose={() => setActiveCandidate(null)}
+        onSave={handleSave}
+        onDismiss={handleDismiss}
+      />
     </div>
   );
 };
@@ -3548,7 +4013,7 @@ const RecentReleaseBanner = ({ games, onSelect, dismissed, onDismiss }) => {
 // =============================================================================
 // LIBRARY SCREEN
 // =============================================================================
-const LibraryScreen = ({ games, onSelect, section, setSection, enrichStatus, onAdd, onOpenBackup, onReorderRumored, savedScrollsRef, tab, onTabChange }) => {
+const LibraryScreen = ({ games, onSelect, section, setSection, enrichStatus, onAdd, onOpenBackup, onReorderRumored, savedScrollsRef, tab, onTabChange, addGame, applyPatchToGame }) => {
   const [query, setQuery] = useState('');
 
   // Restore scroll positions captured before opening a detail screen
@@ -3622,7 +4087,7 @@ const LibraryScreen = ({ games, onSelect, section, setSection, enrichStatus, onA
         {section === 'playing'     && <PlayingView games={filtered} onSelect={onSelect} />}
         {section === 'upcoming'    && <UpcomingView games={filtered} onSelect={onSelect} />}
         {section === 'rumored'     && <RumoredView games={filtered} onSelect={onSelect} onReorder={onReorderRumored} />}
-        {section === 'recommended' && <RecommendedView games={filtered} onSelect={onSelect} />}
+        {section === 'recommended' && <RecommendedView games={filtered} onSelect={onSelect} addGame={addGame} applyPatchToGame={applyPatchToGame} />}
         {section === 'played'      && <PlayedView games={filtered} onSelect={onSelect} />}
       </div>
     </div>
@@ -6011,6 +6476,8 @@ const App = () => {
   const existingIds = useMemo(() => new Set(games.map(g => g.id)), [games]);
   const addGame = (g) => setGames(prev => rerankTop50([...prev, g]));
   const updateGame = (g) => setGames(prev => rerankTop50(prev.map(x => x.id === g.id ? g : x)));
+  const applyPatchToGame = (id, patch) =>
+    setGames(prev => prev.map(x => x.id === id ? { ...x, ...patch } : x));
   const deleteGame = (id) => {
     setGames(prev => rerankTop50(prev.filter(x => x.id !== id)));
     if (selectedId === id) setSelectedId(null);
@@ -6082,6 +6549,8 @@ const App = () => {
             rawgReleased: match.released || null,
             rawgPlatforms: (match.platforms || []).map(p => p.platform?.name).filter(Boolean),
             rawgPlaytime: match.playtime || null,
+            rawgGenres: (match.genres || []).map(genre => genre.slug).filter(Boolean),
+            rawgMetacritic: match.metacritic || null,
             rawgChecked: true,
           } : { rawgChecked: true };
           setGames(prev => prev.map(x => x.id === g.id ? { ...x, ...patch } : x));
@@ -6120,6 +6589,8 @@ const App = () => {
               savedScrollsRef={savedScrollsRef}
               tab={tab}
               onTabChange={setTab}
+              addGame={addGame}
+              applyPatchToGame={applyPatchToGame}
             />
           )}
           {tab === 'news' && (

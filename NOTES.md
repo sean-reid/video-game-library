@@ -11,6 +11,7 @@
 - vgl.readArticles.v1       — set of article IDs marked read
 - vgl.dismissedBanners.v1   — set of event banner IDs dismissed
 - vgl.gistSync.v1           — { token, gistId, gistUrl, lastSyncedAt }
+- vgl.recs.v1               — { fetchedAt, candidates[], dismissedIds[] } "For you" cache (24h TTL)
 
 ## Worker endpoints
 - GET /         health check
@@ -38,10 +39,14 @@
 - **Stats page** — third TitleNav tab. Hero tiles (Played/Avg/Top50 avg/Total hours), score distribution histogram, taste profile radar, by-platform bars, by-year line chart, completion bars, score vs release-year scatter. All hand-rolled SVG, computed in computeStats(games).
 - Backup & data sheet — consolidated import/export plus Gist sync under a single sliders icon (settings icon name)
 - Spotify integration removed (was linking wrong shows); YouTube buttons go direct to YouTube via <a target="_blank">
+- **Recommended for you** — Recommended section split into two rows:
+  - "For you" — horizontal RAWG-driven row. Taste profile = platforms by played-game score sum, devs/publishers by Top 50 presence (+3 bonus per Top 50 game), genres by score + Top 50 bonus. Queries RAWG with metacritic≥75 + top platforms, joined on top devs/publishers/genres in 3 parallel queries, dedupes by RAWG id, scored against the profile. Cached 24h to vgl.recs.v1. Top 50 games get a one-time /games/{id} backfill for developers/publishers (~50 calls).
+  - "Saved for later" — existing manual recommended list (state='recommended'), unchanged grid layout.
+  - Tap a "For you" card → bottom action sheet: Save for later (adds with state='recommended') / Dismiss (adds rawgId to dismissedIds). Owned + dismissed are filtered at render.
+  - Enrichment now also captures rawgGenres + rawgMetacritic from the existing search response (free, no extra API calls).
 
 ## Still planned (in priority order)
-1. **"Recommended for you"** — restructure existing Recommended section into two rows: "For you" (RAWG-driven using user's library signal — weight platforms by score sum, publishers/devs by Top 50 presence, Metacritic ≥75) and "Saved for later" (existing manual list). Tap recommended → Save for later / Dismiss.
-2. **In-app YouTube player** — embedded YouTube IFrame Player in reader sheet with custom controls (play/pause, ±15 sec skip, scrubber). Media Session API for lockscreen handlers (best effort — iOS PWA + iframe is hit-or-miss). User likes the 15-sec skip when phone is locked.
+1. **In-app YouTube player** — embedded YouTube IFrame Player in reader sheet with custom controls (play/pause, ±15 sec skip, scrubber). Media Session API for lockscreen handlers (best effort — iOS PWA + iframe is hit-or-miss). User likes the 15-sec skip when phone is locked.
 
 ## Stats page extensions (not yet built)
 - Filter the stats by platform / tier / year ("show me my taste profile for just PS5 games")
@@ -65,4 +70,4 @@
 
 ## How to resume
 Start a fresh chat with:
-> Continue building my video game library app at ~/video-game-library. Read NOTES.md for context, then let's build [Stats page | Recommended for you | YouTube player].
+> Continue building my video game library app at ~/video-game-library. Read NOTES.md for context, then let's build [YouTube player].
