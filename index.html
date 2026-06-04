@@ -5796,11 +5796,18 @@ const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
     <>
       {/* Stable iframe — a single fixed element positioned over the sheet's
           slot when expanded, parked off-screen (audio continues) when mini.
-          pointer-events-none so all interaction goes through our controls. */}
+          Horizontal size/centering is pure CSS (matches the sheet's slot,
+          which is max-w-md minus mx-4) so it can't overflow on iOS, where a
+          measured-pixel width diverges from layout. Only the vertical `top`
+          is measured. pointer-events stay ON so YouTube taps (play/pause)
+          work. */}
       <div
-        className="fixed pointer-events-none"
+        className="fixed"
         style={mode === 'expanded' && slotRect ? {
-          top: slotRect.top, left: slotRect.left, width: slotRect.width, height: slotRect.height,
+          top: slotRect.top,
+          left: 0, right: 0, marginLeft: 'auto', marginRight: 'auto',
+          width: 'min(calc(100vw - 32px), 416px)',
+          height: 'calc(min(100vw - 32px, 416px) * 0.5625)',
           zIndex: 55,
         } : {
           left: '-10000px', top: 0, width: 1, height: 1, overflow: 'hidden', zIndex: -1,
@@ -5847,8 +5854,19 @@ const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
 
             {/* Title + show */}
             <div className="px-5 mt-3 shrink-0">
-              <div className="text-[11px] uppercase tracking-[0.18em] font-medium" style={{ color: playing.pod.accent || '#d4a574' }}>
-                {playing.pod.show}
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[11px] uppercase tracking-[0.18em] font-medium" style={{ color: playing.pod.accent || '#d4a574' }}>
+                  {playing.pod.show}
+                </div>
+                <a
+                  href={playing.episode.youtubeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center gap-1 shrink-0 glass-light rounded-full px-2.5 py-1 text-[10px] uppercase tracking-wider text-zinc-300 font-medium"
+                >
+                  YouTube ↗
+                </a>
               </div>
               <h2 className="serif text-[19px] leading-tight text-white mt-1 line-clamp-2">{playing.episode.title}</h2>
               {error && <div className="text-[12px] text-rose-300/80 mt-2">{error}</div>}
