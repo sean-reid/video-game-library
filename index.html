@@ -187,7 +187,7 @@
 <div id="root"></div>
 
 <script type="text/babel" data-type="module">
-const { useState, useEffect, useMemo, useRef } = React;
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // =============================================================================
 // SEED DATA
@@ -5705,19 +5705,37 @@ const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
   // Measure the video slot so the fixed iframe can be positioned over it.
   // Re-measures when the sheet resizes (e.g. chapters render and the
   // bottom-anchored sheet grows upward, shifting the slot's top).
+  //
+  // CRITICAL: the ResizeObserver callback is coalesced to one rAF and the
+  // setState bails when the rect is unchanged. Without this, a ResizeObserver
+  // → setState → re-render → (scrollbar/layout settle) → ResizeObserver cycle
+  // can run away and saturate the main thread, which is what made the app go
+  // sluggish/unresponsive after a while in the player.
   useEffect(() => {
     if (mode !== 'expanded') { setSlotRect(null); return; }
-    const measure = () => {
+    let rafId = null;
+    const apply = () => {
+      rafId = null;
       if (!slotRef.current) return;
       const r = slotRef.current.getBoundingClientRect();
-      setSlotRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+      setSlotRect(prev => (
+        prev &&
+        Math.abs(prev.top - r.top) < 0.5 &&
+        Math.abs(prev.left - r.left) < 0.5 &&
+        Math.abs(prev.width - r.width) < 0.5 &&
+        Math.abs(prev.height - r.height) < 0.5
+      ) ? prev : { top: r.top, left: r.left, width: r.width, height: r.height });
     };
-    measure();
-    const raf = requestAnimationFrame(() => { measure(); requestAnimationFrame(measure); });
-    const ro = new ResizeObserver(measure);
+    const schedule = () => { if (rafId == null) rafId = requestAnimationFrame(apply); };
+    schedule();
+    const ro = new ResizeObserver(schedule);
     if (sheetRef.current) ro.observe(sheetRef.current);
-    window.addEventListener('resize', measure);
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); window.removeEventListener('resize', measure); };
+    window.addEventListener('resize', schedule);
+    return () => {
+      if (rafId != null) cancelAnimationFrame(rafId);
+      ro.disconnect();
+      window.removeEventListener('resize', schedule);
+    };
   }, [mode, chapters.length, playing]);
 
   const skip = (delta) => {
@@ -5734,11 +5752,43 @@ const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
     if (isPlaying) p.pauseVideo?.();
     else p.playVideo?.();
   };
-  const seekTo = (t) => {
+  // Stable identity so the memoized chapter list doesn't re-render every poll.
+  const seekTo = useCallback((t) => {
     playerRef.current?.seekTo?.(t, true);
     playerRef.current?.playVideo?.();
     setCurrentTime(t);
+  }, []);
+
+  // YouTube watch URL anchored to a given second, so "Open in YouTube"
+  // resumes from wherever you currently are in the episode.
+  const youtubeUrlAt = (secs) => {
+    const id = extractYouTubeId(playing?.episode?.youtubeUrl);
+    const t = Math.max(0, Math.floor(secs || 0));
+    return id ? `https://www.youtube.com/watch?v=${id}&t=${t}s` : (playing?.episode?.youtubeUrl || '#');
   };
+
+  // Memoized chapter rows — depends only on chapters + which one is active,
+  // NOT on currentTime, so the list isn't rebuilt on every 500ms poll.
+  const chapterRows = useMemo(() => chapters.map((c, i) => {
+    const active = i === activeChapterIdx;
+    return (
+      <button
+        key={`${c.time}-${i}`}
+        onClick={() => seekTo(c.time)}
+        className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-left transition-colors ${active ? 'bg-white/10' : 'hover:bg-white/5 active:bg-white/10'}`}
+      >
+        <span
+          className="text-[11px] tabular-nums font-semibold shrink-0 w-12"
+          style={{ color: active ? '#e2b878' : '#71717a' }}
+        >
+          {formatPlayerTime(c.time)}
+        </span>
+        <span className={`text-[13px] leading-snug ${active ? 'text-white' : 'text-zinc-300'} line-clamp-2`}>
+          {c.label}
+        </span>
+      </button>
+    );
+  }), [chapters, activeChapterIdx, seekTo]);
 
   // Media Session API — best effort. iOS uses 10s seek offsets on the
   // lockscreen, so we mirror that here (the in-app buttons stay at 15s).
@@ -5859,10 +5909,16 @@ const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
                   {playing.pod.show}
                 </div>
                 <a
-                  href={playing.episode.youtubeUrl}
+                  href={youtubeUrlAt(currentTime)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Rewrite href just-in-time from the player's live position
+                    // so it always resumes from exactly where you are now.
+                    const live = playerRef.current?.getCurrentTime?.();
+                    e.currentTarget.href = youtubeUrlAt(typeof live === 'number' ? live : currentTime);
+                  }}
                   className="flex items-center gap-1 shrink-0 glass-light rounded-full px-2.5 py-1 text-[10px] uppercase tracking-wider text-zinc-300 font-medium"
                 >
                   YouTube ↗
@@ -5916,26 +5972,7 @@ const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
                   Chapters
                 </div>
                 <div className="overflow-y-auto overscroll-contain px-3 pb-4">
-                  {chapters.map((c, i) => {
-                    const active = i === activeChapterIdx;
-                    return (
-                      <button
-                        key={`${c.time}-${i}`}
-                        onClick={() => seekTo(c.time)}
-                        className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-left transition-colors ${active ? 'bg-white/10' : 'hover:bg-white/5 active:bg-white/10'}`}
-                      >
-                        <span
-                          className="text-[11px] tabular-nums font-semibold shrink-0 w-12"
-                          style={{ color: active ? '#e2b878' : '#71717a' }}
-                        >
-                          {formatPlayerTime(c.time)}
-                        </span>
-                        <span className={`text-[13px] leading-snug ${active ? 'text-white' : 'text-zinc-300'} line-clamp-2`}>
-                          {c.label}
-                        </span>
-                      </button>
-                    );
-                  })}
+                  {chapterRows}
                 </div>
               </div>
             )}
