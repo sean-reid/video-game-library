@@ -44,10 +44,12 @@
   - "Top franchises" — vertical list of series with ≥2 games, sorted by count then avg score (top 10). Each row: thumbnail (highest-rated series game with a cover, fallback most-recent), franchise label, count + masterpieces, avg score badge tier-colored. Franchises derived from FRANCHISE_RULES title-prefix regexes (ordered most-specific first).
   - "Completion" — story / platinum / replayed bars (moved to bottom).
   All hand-rolled SVG / div bars, computed in computeStats(games).
-- **In-app YouTube player** — PodcastPlayer lifted to App level so the iframe survives tab/screen changes. Two modes:
-  - Expanded: full-screen sheet with YouTube IFrame (controls=0, modestbranding, playsinline), custom transport (±15s skip with circular-arrow icons, big play/pause, scrubber with current/total time, minimize ▾ and close ✕ in header).
-  - Mini: thin glass bar pinned to bottom safe area with show name + truncated title + play/pause + close. Tap anywhere else to re-expand. Iframe is parked off-screen (left: -10000px, 1×1 px) so audio keeps playing.
-  - YouTube IFrame API loaded once via `loadYouTubeApi()` promise. State updates polled at 500ms while playing. Media Session API metadata + play/pause/seekbackward/seekforward handlers wired best-effort for lockscreen control (iOS PWA + iframe is known flaky).
+- **In-app YouTube player** — PodcastPlayer lifted to App level so the iframe survives tab/screen changes. ONE fixed iframe is positioned over a measured "slot" (slotRef.getBoundingClientRect, re-measured via ResizeObserver on the sheet since the bottom-anchored sheet grows upward when chapters render). pointer-events-none on the iframe so all interaction goes through our controls. Two modes:
+  - Expanded: bottom sheet (max-h 92vh, bottom-anchored so controls clear the iOS status bar) with a tappable scrim behind it (tap scrim / drag-handle / ▾ → collapse to mini; ✕ → stop). Video at top, then title, scrubber, ±15s transport, then a scrollable Chapters list. Everything above chapters is shrink-0; chapters are flex-1 min-h-0 overflow-y-auto so they never push controls/close off-screen.
+  - Mini: thin glass bar pinned to bottom safe area with show name + truncated title + play/pause + close. Tap to re-expand (iframe re-measures + re-aligns to the slot). Iframe parked off-screen (left: -10000px, 1×1 px) so audio keeps playing.
+  - Chapters: parseChapters(episode.description) pulls `m:ss / mm:ss / h:mm:ss` leading-timestamp lines (needs ≥2). worker.js now sends episode.description (media:description, capped 4000 chars) — **needs a worker redeploy for chapters to show in production**. Tapping a chapter seeks + plays; active chapter (last whose time ≤ now) is highlighted.
+  - YouTube IFrame API loaded once via `loadYouTubeApi()` promise. State polled at 500ms. Media Session metadata + play/pause + seekbackward/seekforward (10s, matching iOS native) + prev/next + setPositionState, all best-effort.
+  - **Lock-screen playback is a platform wall**: iOS Safari/PWA does NOT keep a YouTube iframe playing once the screen locks, and Media Session lock-screen controls only surface for media the OS itself plays (HTML5 audio/video), not third-party iframes. No reliable workaround without extracting the audio stream (against YT ToS). Handlers are wired so IF the controls ever appear they work, but background-locked playback isn't achievable here.
   - PodcastCard + PodcastListSheet's old `<a target="_blank">` YouTube links now call `onPlay(pod, episode)`; openPodcast in NewsScreen drops Spotify/_linkOut and calls App-level `playEpisode`. ReaderSheet is now articles-only (podcast branch removed).
 - Backup & data sheet — consolidated import/export plus Gist sync under a single sliders icon (settings icon name)
 - Spotify integration removed (was linking wrong shows); YouTube buttons go direct to YouTube via <a target="_blank">
@@ -69,7 +71,9 @@
 - Worker /article extraction works best on Polygon, IGN, Engadget, Nintendo Life, PlayStation Blog. Sites with unusual layouts may return sparse content — extend the content-pattern list in extractArticleContent() if needed.
 - Worker has a `_debug` field in podcast responses. Could strip for production size optimization (~5 min cleanup).
 - Vice's gaming feed is essentially defunct since Waypoint shut down; VICE_KEEP URL filter is strict so most Vice items get dropped now. Could remove Vice from RSS_SOURCES entirely.
-- Lockscreen Media Session for YouTube iframe on iOS PWA is the biggest unknown for feature #3.
+- Lockscreen background playback for a YouTube iframe on iOS PWA is NOT achievable (see player notes above) — confirmed platform limitation, not a TODO.
+- **Worker currently returns 0 podcast episodes for both KF shows** (observed 2026-06-04 via /news?nocache=1). Likely the channel handle→ID resolve or titlePattern match broke (KF may have changed video title formats, or the channel-page scrape regex needs updating). Check baseShape._debug.recentVideoTitles vs PODCAST_SOURCES titlePatterns. Until fixed, podcasts + chapters won't appear in production regardless of the client.
+- **worker.js change pending deploy**: episodes now include `description` (for client chapter parsing). Redeploy the worker to ship it.
 
 ## Worker structure (for fresh-context reference)
 - RSS_SOURCES: array with { source, url, dedicated: bool }. Dedicated sources trust the feed; mixed sources require GAMING_SIGNALS_RE match in title/excerpt/URL.

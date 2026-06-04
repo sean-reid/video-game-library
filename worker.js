@@ -352,6 +352,9 @@ async function fetchAllPodcasts() {
       duration: '',
       youtubeUrl: v.url,
       spotifyUrl: pod.spotifyUrl,
+      // Full video description so the client can parse chapter timestamps.
+      // Capped to keep the JSON payload reasonable.
+      description: (v.description || '').slice(0, 4000),
     }));
 
     baseShape._debug = {

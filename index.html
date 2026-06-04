@@ -5540,12 +5540,13 @@ const PodcastListSheet = ({ open, pod, onClose, onPlay }) => {
 
 // =============================================================================
 // IN-APP YOUTUBE PLAYER
-// Renders ONE stable iframe at the App level. Mode === 'expanded' shows a
-// full-screen sheet with custom controls (±15s, scrubber, play/pause); 'mini'
-// parks the iframe off-screen and surfaces a thin bar above the tab nav so
-// audio keeps playing while the user browses other screens. Media Session
-// API is best-effort for lockscreen handlers — iOS PWA + YouTube iframe is
-// known to be flaky.
+// Renders ONE stable YouTube iframe at the App level, kept alive across mode
+// changes by positioning a single fixed iframe over a measured "slot" in the
+// expanded sheet (or off-screen in mini). Expanded mode is a bottom sheet with
+// a tappable scrim (tap → collapse to mini), custom transport (±15s, scrubber,
+// play/pause), and a scrollable chapter list parsed from the video description.
+// Media Session handlers are best-effort; note that iOS Safari/PWA does NOT
+// keep a YouTube iframe playing once the screen locks — that's a platform wall.
 // =============================================================================
 const extractYouTubeId = (url) => {
   if (!url) return null;
@@ -5561,6 +5562,29 @@ const formatPlayerTime = (s) => {
   const sec = total % 60;
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   return `${m}:${String(sec).padStart(2, '0')}`;
+};
+
+// Parse chapter timestamps out of a YouTube video description. Matches lines
+// that start with a timestamp (m:ss / mm:ss / h:mm:ss), optionally wrapped in
+// parens, followed by a label. Needs ≥2 to count as a real chapter list.
+const parseChapters = (description) => {
+  if (!description) return [];
+  const out = [];
+  for (const rawLine of description.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const m = line.match(/^\(?(\d{1,2}):(\d{2})(?::(\d{2}))?\)?\s*[-–—:.)\]]*\s*(\S.*)$/);
+    if (!m) continue;
+    let secs;
+    if (m[3] !== undefined) secs = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]);
+    else secs = (+m[1]) * 60 + (+m[2]);
+    const label = m[4].trim().replace(/\s{2,}/g, ' ');
+    if (label) out.push({ time: secs, label });
+  }
+  // De-dup by timestamp (keep first), sort ascending
+  const seen = new Set();
+  const deduped = out.filter(c => (seen.has(c.time) ? false : seen.add(c.time)));
+  deduped.sort((a, b) => a.time - b.time);
+  return deduped.length >= 2 ? deduped.slice(0, 80) : [];
 };
 
 // Loads the YouTube IFrame API exactly once; returns a promise that resolves
@@ -5584,19 +5608,35 @@ const loadYouTubeApi = () => {
   return ytApiPromise;
 };
 
+const SKIP_SECONDS = 15;
+
 const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
-  // The host div for YouTube to mount its iframe into. Must remain in the
-  // DOM across mode changes or the player gets destroyed.
-  const hostRef = useRef(null);
-  const playerRef = useRef(null);
+  const hostRef = useRef(null);     // div YouTube mounts its iframe into
+  const playerRef = useRef(null);   // YT.Player instance
+  const sheetRef = useRef(null);    // expanded sheet container (for ResizeObserver)
+  const slotRef = useRef(null);     // placeholder the iframe is positioned over
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [scrubbing, setScrubbing] = useState(false);
   const [error, setError] = useState(null);
+  const [slotRect, setSlotRect] = useState(null);
 
   const videoId = playing ? extractYouTubeId(playing.episode.youtubeUrl) : null;
+  const chapters = useMemo(
+    () => parseChapters(playing?.episode?.description),
+    [playing]
+  );
+  // Index of the chapter currently playing (last chapter whose time <= now)
+  const activeChapterIdx = useMemo(() => {
+    if (chapters.length === 0) return -1;
+    let idx = -1;
+    for (let i = 0; i < chapters.length; i++) {
+      if (currentTime + 0.5 >= chapters[i].time) idx = i; else break;
+    }
+    return idx;
+  }, [chapters, currentTime]);
 
   // Create or update the YouTube player whenever the playing item changes
   useEffect(() => {
@@ -5606,7 +5646,7 @@ const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
 
     loadYouTubeApi().then(() => {
       if (cancelled || !hostRef.current) return;
-      if (playerRef.current) {
+      if (playerRef.current && playerRef.current.loadVideoById) {
         try { playerRef.current.loadVideoById(videoId); } catch { /* ignore */ }
         return;
       }
@@ -5648,7 +5688,7 @@ const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
     return () => { cancelled = true; };
   }, [videoId]);
 
-  // Poll currentTime while playing (or while expanded so the scrubber stays live)
+  // Poll currentTime so the scrubber + active chapter stay live
   useEffect(() => {
     if (!isReady || !playerRef.current) return;
     const id = setInterval(() => {
@@ -5662,43 +5702,23 @@ const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
     return () => clearInterval(id);
   }, [isReady, scrubbing, duration]);
 
-  // Media Session API — best effort for lockscreen handlers
+  // Measure the video slot so the fixed iframe can be positioned over it.
+  // Re-measures when the sheet resizes (e.g. chapters render and the
+  // bottom-anchored sheet grows upward, shifting the slot's top).
   useEffect(() => {
-    if (!playing || !('mediaSession' in navigator)) return;
-    try {
-      navigator.mediaSession.metadata = new window.MediaMetadata({
-        title: playing.episode.title || 'Podcast',
-        artist: playing.pod.show || 'Kinda Funny',
-        artwork: [
-          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
-        ],
-      });
-      navigator.mediaSession.setActionHandler('play', () => playerRef.current?.playVideo?.());
-      navigator.mediaSession.setActionHandler('pause', () => playerRef.current?.pauseVideo?.());
-      navigator.mediaSession.setActionHandler('seekbackward', () => skip(-15));
-      navigator.mediaSession.setActionHandler('seekforward', () => skip(15));
-    } catch { /* unsupported in some browsers */ }
-  }, [playing]);
-
-  // Sync media session playback state so iOS shows the right indicator
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return;
-    try { navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'; } catch {}
-  }, [isPlaying]);
-
-  // Tear down the player when nothing's loaded
-  useEffect(() => {
-    if (playing) return;
-    if (playerRef.current) {
-      try { playerRef.current.destroy(); } catch {}
-      playerRef.current = null;
-      setIsReady(false);
-      setIsPlaying(false);
-      setCurrentTime(0);
-      setDuration(0);
-    }
-  }, [playing]);
+    if (mode !== 'expanded') { setSlotRect(null); return; }
+    const measure = () => {
+      if (!slotRef.current) return;
+      const r = slotRef.current.getBoundingClientRect();
+      setSlotRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+    };
+    measure();
+    const raf = requestAnimationFrame(() => { measure(); requestAnimationFrame(measure); });
+    const ro = new ResizeObserver(measure);
+    if (sheetRef.current) ro.observe(sheetRef.current);
+    window.addEventListener('resize', measure);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); window.removeEventListener('resize', measure); };
+  }, [mode, chapters.length, playing]);
 
   const skip = (delta) => {
     const p = playerRef.current;
@@ -5716,96 +5736,196 @@ const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
   };
   const seekTo = (t) => {
     playerRef.current?.seekTo?.(t, true);
+    playerRef.current?.playVideo?.();
     setCurrentTime(t);
   };
+
+  // Media Session API — best effort. iOS uses 10s seek offsets on the
+  // lockscreen, so we mirror that here (the in-app buttons stay at 15s).
+  useEffect(() => {
+    if (!playing || !('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new window.MediaMetadata({
+        title: playing.episode.title || 'Podcast',
+        artist: playing.pod.show || 'Kinda Funny',
+        artwork: [
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
+        ],
+      });
+      navigator.mediaSession.setActionHandler('play', () => playerRef.current?.playVideo?.());
+      navigator.mediaSession.setActionHandler('pause', () => playerRef.current?.pauseVideo?.());
+      navigator.mediaSession.setActionHandler('seekbackward', (d) => skip(-(d.seekOffset || 10)));
+      navigator.mediaSession.setActionHandler('seekforward', (d) => skip(d.seekOffset || 10));
+      navigator.mediaSession.setActionHandler('previoustrack', () => skip(-10));
+      navigator.mediaSession.setActionHandler('nexttrack', () => skip(10));
+    } catch { /* unsupported in some browsers */ }
+  }, [playing]);
+
+  // Sync media session playback state + position so iOS shows the right info
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    try { navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'; } catch {}
+    try {
+      if (duration > 0 && navigator.mediaSession.setPositionState) {
+        navigator.mediaSession.setPositionState({
+          duration,
+          position: Math.min(currentTime, duration),
+          playbackRate: 1,
+        });
+      }
+    } catch { /* setPositionState can throw on bad values */ }
+  }, [isPlaying, currentTime, duration]);
+
+  // Tear down the player when nothing's loaded
+  useEffect(() => {
+    if (playing) return;
+    if (playerRef.current) {
+      try { playerRef.current.destroy(); } catch {}
+      playerRef.current = null;
+      setIsReady(false);
+      setIsPlaying(false);
+      setCurrentTime(0);
+      setDuration(0);
+    }
+  }, [playing]);
 
   if (!playing) return null;
 
   return (
     <>
-      {/* Stable iframe host — moves between visible/off-screen positions via
-          inline style. Must remain in the DOM across mode changes. */}
+      {/* Stable iframe — a single fixed element positioned over the sheet's
+          slot when expanded, parked off-screen (audio continues) when mini.
+          pointer-events-none so all interaction goes through our controls. */}
       <div
         className="fixed pointer-events-none"
-        style={mode === 'expanded' ? {
-          top: 56, left: 0, right: 0, margin: '0 auto',
-          width: 'min(calc(100% - 32px), 416px)',
-          aspectRatio: '16 / 9',
+        style={mode === 'expanded' && slotRect ? {
+          top: slotRect.top, left: slotRect.left, width: slotRect.width, height: slotRect.height,
           zIndex: 55,
         } : {
-          left: '-10000px', top: 0, width: 1, height: 1, overflow: 'hidden',
+          left: '-10000px', top: 0, width: 1, height: 1, overflow: 'hidden', zIndex: -1,
         }}
       >
-        <div className="w-full h-full bg-black rounded-2xl overflow-hidden pointer-events-auto">
+        <div className="w-full h-full bg-black rounded-2xl overflow-hidden">
           <div ref={hostRef} className="w-full h-full" />
         </div>
       </div>
 
-      {/* EXPANDED — full-screen sheet with custom controls */}
+      {/* EXPANDED — bottom sheet + scrim. Tap scrim to collapse to mini. */}
       {mode === 'expanded' && (
-        <div className="fixed inset-0 z-50 bg-ink-950 flex flex-col max-w-md mx-auto">
-          {/* Header */}
-          <div className="flex items-center justify-between px-3 pt-3 pb-2 shrink-0">
-            <button onClick={onMinimize} className="glass-light rounded-full p-2" aria-label="Minimize">
-              <Icon name="arrowDown" className="w-5 h-5 text-zinc-300" />
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm"
+            onClick={onMinimize}
+            aria-label="Collapse player"
+          />
+          <div
+            ref={sheetRef}
+            className="fixed bottom-0 inset-x-0 z-50 max-w-md mx-auto bg-ink-950 rounded-t-3xl border-t border-white/10 flex flex-col"
+            style={{ maxHeight: '92vh' }}
+          >
+            {/* Drag handle — tap to collapse */}
+            <button onClick={onMinimize} className="flex justify-center pt-2.5 pb-1 shrink-0 w-full" aria-label="Collapse player">
+              <div className="w-9 h-1 rounded-full bg-white/20" />
             </button>
-            <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-medium">
-              Now playing
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-3 pb-2 shrink-0">
+              <button onClick={onMinimize} className="glass-light rounded-full p-2" aria-label="Minimize">
+                <Icon name="arrowDown" className="w-5 h-5 text-zinc-300" />
+              </button>
+              <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-medium">
+                Now playing
+              </div>
+              <button onClick={onClose} className="glass-light rounded-full p-2" aria-label="Close player">
+                <Icon name="close" className="w-5 h-5 text-zinc-300" />
+              </button>
             </div>
-            <button onClick={onClose} className="glass-light rounded-full p-2" aria-label="Close player">
-              <Icon name="close" className="w-5 h-5 text-zinc-300" />
-            </button>
-          </div>
 
-          {/* Spacer matching iframe's fixed position so the layout flows below it */}
-          <div style={{ aspectRatio: '16 / 9', width: 'min(calc(100% - 32px), 416px)', margin: '0 auto' }} className="shrink-0" />
+            {/* Video slot — the fixed iframe is positioned exactly over this */}
+            <div ref={slotRef} className="mx-4 rounded-2xl bg-black shrink-0" style={{ aspectRatio: '16 / 9' }} />
 
-          {/* Title + show */}
-          <div className="px-5 mt-5 shrink-0">
-            <div className="text-[11px] uppercase tracking-[0.18em] font-medium" style={{ color: playing.pod.accent || '#d4a574' }}>
-              {playing.pod.show}
+            {/* Title + show */}
+            <div className="px-5 mt-3 shrink-0">
+              <div className="text-[11px] uppercase tracking-[0.18em] font-medium" style={{ color: playing.pod.accent || '#d4a574' }}>
+                {playing.pod.show}
+              </div>
+              <h2 className="serif text-[19px] leading-tight text-white mt-1 line-clamp-2">{playing.episode.title}</h2>
+              {error && <div className="text-[12px] text-rose-300/80 mt-2">{error}</div>}
             </div>
-            <h2 className="serif text-[22px] leading-tight text-white mt-1 line-clamp-3">{playing.episode.title}</h2>
-            {error && <div className="text-[12px] text-rose-300/80 mt-3">{error}</div>}
-          </div>
 
-          {/* Scrubber */}
-          <div className="px-5 mt-6 shrink-0">
-            <input
-              type="range"
-              min={0}
-              max={duration || 1}
-              step={0.5}
-              value={currentTime}
-              onChange={(e) => { setScrubbing(true); setCurrentTime(parseFloat(e.target.value)); }}
-              onMouseUp={(e) => { seekTo(parseFloat(e.target.value)); setScrubbing(false); }}
-              onTouchEnd={(e) => { seekTo(parseFloat(e.target.value)); setScrubbing(false); }}
-              className="w-full"
-              style={{ accentColor: '#e2b878' }}
-            />
-            <div className="flex justify-between text-[11px] text-zinc-500 tabular-nums mt-1">
-              <span>{formatPlayerTime(currentTime)}</span>
-              <span>{formatPlayerTime(duration)}</span>
+            {/* Scrubber */}
+            <div className="px-5 mt-3 shrink-0">
+              <input
+                type="range"
+                min={0}
+                max={duration || 1}
+                step={0.5}
+                value={currentTime}
+                onChange={(e) => { setScrubbing(true); setCurrentTime(parseFloat(e.target.value)); }}
+                onMouseUp={(e) => { seekTo(parseFloat(e.target.value)); setScrubbing(false); }}
+                onTouchEnd={(e) => { seekTo(parseFloat(e.target.value)); setScrubbing(false); }}
+                className="w-full"
+                style={{ accentColor: '#e2b878' }}
+              />
+              <div className="flex justify-between text-[11px] text-zinc-500 tabular-nums mt-1">
+                <span>{formatPlayerTime(currentTime)}</span>
+                <span>{formatPlayerTime(duration)}</span>
+              </div>
             </div>
-          </div>
 
-          {/* Transport controls */}
-          <div className="mt-8 flex items-center justify-center gap-10 shrink-0">
-            <button onClick={() => skip(-15)} className="text-zinc-200 active:scale-95 transition-transform" aria-label="Back 15 seconds">
-              <Icon name="skipBack15" className="w-10 h-10" />
-            </button>
-            <button
-              onClick={togglePlay}
-              className="bg-white text-ink-950 rounded-full w-16 h-16 flex items-center justify-center active:scale-95 transition-transform"
-              aria-label={isPlaying ? 'Pause' : 'Play'}
-            >
-              <Icon name={isPlaying ? 'pause' : 'play'} className="w-7 h-7" filled />
-            </button>
-            <button onClick={() => skip(15)} className="text-zinc-200 active:scale-95 transition-transform" aria-label="Forward 15 seconds">
-              <Icon name="skipForward15" className="w-10 h-10" />
-            </button>
+            {/* Transport controls */}
+            <div className="mt-3 mb-1 flex items-center justify-center gap-10 shrink-0">
+              <button onClick={() => skip(-SKIP_SECONDS)} className="text-zinc-200 active:scale-95 transition-transform" aria-label="Back 15 seconds">
+                <Icon name="skipBack15" className="w-9 h-9" />
+              </button>
+              <button
+                onClick={togglePlay}
+                className="bg-white text-ink-950 rounded-full w-14 h-14 flex items-center justify-center active:scale-95 transition-transform"
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+              >
+                <Icon name={isPlaying ? 'pause' : 'play'} className="w-6 h-6" filled />
+              </button>
+              <button onClick={() => skip(SKIP_SECONDS)} className="text-zinc-200 active:scale-95 transition-transform" aria-label="Forward 15 seconds">
+                <Icon name="skipForward15" className="w-9 h-9" />
+              </button>
+            </div>
+
+            {/* Chapters — own scroll container so it never pushes controls up */}
+            {chapters.length > 0 && (
+              <div className="mt-2 flex flex-col min-h-0 flex-1">
+                <div className="px-5 text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-medium shrink-0 mb-1.5">
+                  Chapters
+                </div>
+                <div className="overflow-y-auto overscroll-contain px-3 pb-4">
+                  {chapters.map((c, i) => {
+                    const active = i === activeChapterIdx;
+                    return (
+                      <button
+                        key={`${c.time}-${i}`}
+                        onClick={() => seekTo(c.time)}
+                        className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-left transition-colors ${active ? 'bg-white/10' : 'hover:bg-white/5 active:bg-white/10'}`}
+                      >
+                        <span
+                          className="text-[11px] tabular-nums font-semibold shrink-0 w-12"
+                          style={{ color: active ? '#e2b878' : '#71717a' }}
+                        >
+                          {formatPlayerTime(c.time)}
+                        </span>
+                        <span className={`text-[13px] leading-snug ${active ? 'text-white' : 'text-zinc-300'} line-clamp-2`}>
+                          {c.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Bottom safe-area padding when there are no chapters to fill it */}
+            {chapters.length === 0 && <div className="pb-6 shrink-0" />}
           </div>
-        </div>
+        </>
       )}
 
       {/* MINI BAR — pinned to the bottom safe area while iframe plays off-screen */}
