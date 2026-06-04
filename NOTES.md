@@ -26,6 +26,7 @@
 
 ## Done so far
 - Library sections: Top 50 with Cover Flow / Playing / Upcoming / Rumored / Recommended / Played
+- Game detail screen: tap-to-toggle Story/Platinum/Replayed status tiles (no edit pencil needed — `toggleCompletion(id,key)` in App). Left/right arrows on the hero step prev/next through the current section's order (`buildNavOrder(games, section)`); arrows hide at the ends. GameCard shows gold platinum-trophy + replayed-arrow pills next to the #rank badge when those completions are on.
 - 10-category rating with auto-rerank on score change (Masterpiece 100 / Amazing 90-99 / Great 80-89)
 - Top 50 floor: games dropping below 80 auto-lose their topListRank
 - News: live feed from Worker (Nintendo Life, PlayStation Blog, Polygon, IGN, Engadget, Push Square, GamesRadar+, Vice) + Wikipedia events + KFGD/KFG from KF YouTube channel
@@ -41,7 +42,7 @@
   - "Score vs. release year" — horizontal stacked bars per year (most-recent first, back through 2017), tiers = Masterpiece / Amazing / Great / Played (non-Top 50).
   - "Score vs. system" — same stacked-bar shape per platform, sorted by total played.
   - "What you value" — predictiveness radar. For each rubric category, lift = avg(C among Masterpieces) − avg(C among non-Masterpiece Top 50). Max lift reaches outer ring; 0 sits at center. Reveals which categories actually distinguish Masterpieces (e.g. Audio and Endurance can rank higher than Narrative even when Narrative averages high overall).
-  - "Top franchises" — vertical list of series with ≥2 games, sorted by count then avg score (top 10). Each row: thumbnail (highest-rated series game with a cover, fallback most-recent), franchise label, count + masterpieces, avg score badge tier-colored. Franchises derived from FRANCHISE_RULES title-prefix regexes (ordered most-specific first).
+  - "Top franchises" — vertical list of series with ≥2 games (top 10). Segmented sort control with 3 modes: "Overall" (default), "Number of games", "Top score". Overall = (countNorm + scoreNorm)/2 where countNorm = log(1+count)/log(1+maxCount) (LOG, not linear — diminishing returns so the first games matter most) and scoreNorm = clamp((avgScore−80)/20, 0..1). Blends breadth + quality so a deep high-scoring series (Mario 16g/95) tops a tiny perfect one (Astro 2g/97, which falls off the top 10), and a 4g/97 series clears a 2g/100 one — while a big score gap still lets a smaller franchise win (3g/100 beats 6g/95.8). computeStats returns the FULL franchise list; the TopFranchises component sorts + slices(10) by its local `sort` state. Each row: thumbnail (highest-rated series game with a cover, fallback most-recent), franchise label, count + masterpieces, avg score badge tier-colored. Franchises derived from FRANCHISE_RULES title-prefix regexes (ordered most-specific first).
   - "Completion" — story / platinum / replayed bars (moved to bottom).
   All hand-rolled SVG / div bars, computed in computeStats(games).
 - **In-app YouTube player** — PodcastPlayer lifted to App level so the iframe survives tab/screen changes. ONE fixed iframe is positioned over a measured "slot" (slotRef.getBoundingClientRect, re-measured via ResizeObserver on the sheet since the bottom-anchored sheet grows upward when chapters render). pointer-events-none on the iframe so all interaction goes through our controls. Two modes:

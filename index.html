@@ -3084,9 +3084,22 @@ const GameCard = ({ game, onClick }) => {
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/20" />
       )}
       <div className="absolute inset-0 flex flex-col justify-end p-3 gap-1.5">
-        {/* Badges hover above the title strip — top-right reserved for future signals */}
+        {/* Badges hover above the title strip. Left cluster = state/rank badge
+            plus gold completion markers (platinum trophy, replayed arrow). */}
         <div className="flex items-center justify-between gap-2">
-          {leftBadge || <div />}
+          <div className="flex items-center gap-1.5">
+            {leftBadge}
+            {game.completion?.platinum && (
+              <div className="glass-light rounded-full p-1" title="Platinum">
+                <Icon name="trophy" className="w-3 h-3" style={{ color: '#e2b878' }} />
+              </div>
+            )}
+            {game.completion?.replayed && (
+              <div className="glass-light rounded-full p-1" title="Replayed">
+                <Icon name="replay" className="w-3 h-3" style={{ color: '#e2b878' }} />
+              </div>
+            )}
+          </div>
           {rightBadge || <div />}
         </div>
 
@@ -5052,7 +5065,38 @@ const importLibrary = (setGames) => {
 // =============================================================================
 // GAME DETAIL SCREEN
 // =============================================================================
-const GameDetailScreen = ({ game, onBack, onEdit }) => {
+// Ordered list of game IDs for prev/next navigation in the detail screen —
+// mirrors how each library section orders its cards so the arrows feel like
+// stepping through the row you opened the game from.
+const buildNavOrder = (games, section) => {
+  let list;
+  switch (section) {
+    case 'top50':
+      list = games.filter(g => g.topListRank != null).sort((a, b) => a.topListRank - b.topListRank);
+      break;
+    case 'playing':
+      list = games.filter(g => g.state === 'playing');
+      break;
+    case 'upcoming':
+      list = games.filter(g => g.state === 'upcoming').sort((a, b) => upcomingSortKey(a) - upcomingSortKey(b));
+      break;
+    case 'rumored':
+      list = games.filter(g => g.state === 'rumored');
+      break;
+    case 'recommended':
+      list = games.filter(g => g.state === 'recommended').sort((a, b) => (primaryYear(b) || 0) - (primaryYear(a) || 0));
+      break;
+    case 'played':
+      list = games.filter(g => g.state === 'played')
+        .sort((a, b) => ((b.year || 0) - (a.year || 0)) || ((a.topListRank ?? 999) - (b.topListRank ?? 999)));
+      break;
+    default:
+      list = games;
+  }
+  return list.map(g => g.id);
+};
+
+const GameDetailScreen = ({ game, onBack, onEdit, onToggleCompletion, onPrev, onNext, hasPrev, hasNext }) => {
   const tier = game.rating ? TIER(game.rating.total) : null;
   const color = tier?.color || '#a1a1aa';
 
@@ -5086,6 +5130,26 @@ const GameDetailScreen = ({ game, onBack, onEdit }) => {
               </button>
             </div>
           </div>
+
+          {/* Prev / next game navigation — steps through the current section */}
+          {hasPrev && (
+            <button
+              onClick={onPrev}
+              className="absolute left-2 top-1/2 -translate-y-1/2 glass-light rounded-full p-2.5 z-20"
+              aria-label="Previous game"
+            >
+              <Icon name="back" className="w-5 h-5" />
+            </button>
+          )}
+          {hasNext && (
+            <button
+              onClick={onNext}
+              className="absolute right-2 top-1/2 -translate-y-1/2 glass-light rounded-full p-2.5 z-20"
+              aria-label="Next game"
+            >
+              <Icon name="back" className="w-5 h-5" style={{ transform: 'rotate(180deg)' }} />
+            </button>
+          )}
 
           <div className="mt-auto px-4 pb-5">
             <div className="text-[11px] uppercase tracking-[0.2em] text-white/60 font-medium mb-2">
@@ -5136,7 +5200,10 @@ const GameDetailScreen = ({ game, onBack, onEdit }) => {
           </div>
 
           <div className="px-4 pt-5">
-            <div className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 font-medium mb-3">Status</div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 font-medium">Status</div>
+              <div className="text-[10px] uppercase tracking-wider text-zinc-600 font-medium">Tap to toggle</div>
+            </div>
             <div className="grid grid-cols-3 gap-2">
               {[
                 { key: 'story', label: 'Story', icon: 'check' },
@@ -5145,10 +5212,15 @@ const GameDetailScreen = ({ game, onBack, onEdit }) => {
               ].map(f => {
                 const on = game.completion?.[f.key];
                 return (
-                  <div key={f.key} className={`glass rounded-2xl p-3 flex flex-col items-center gap-1.5 ${on ? '' : 'opacity-40'}`}>
+                  <button
+                    key={f.key}
+                    onClick={() => onToggleCompletion?.(game.id, f.key)}
+                    className={`glass rounded-2xl p-3 flex flex-col items-center gap-1.5 transition-all active:scale-95 ${on ? 'ring-1 ring-white/15' : 'opacity-40'}`}
+                    aria-pressed={!!on}
+                  >
                     <Icon name={f.icon} className="w-5 h-5" style={{ color: on ? color : '#71717a' }} />
                     <div className="text-[11px] uppercase tracking-wider font-medium">{f.label}</div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -6276,8 +6348,8 @@ const StatsScreen = ({ games, tab, onTabChange }) => {
         <TierStackedBar rows={stats.byPlatformTiers} labelWidth="5rem" />
       </SectionCard>
 
-      {/* Top franchises — most-played series, by count then avg score */}
-      <SectionCard title="Top franchises" subtitle="Series with the most games in your library">
+      {/* Top franchises — series with 2+ games, sortable by count or score */}
+      <SectionCard title="Top franchises" subtitle="Series with 2 or more games in your library">
         <TopFranchises rows={stats.topFranchises} />
       </SectionCard>
 
@@ -6434,11 +6506,11 @@ const computeStats = (games) => {
     );
     row.recentGame = pool[0];
   });
+  // Full franchise list (≥2 games); the component sorts + slices by the
+  // selected mode (number of games vs. top score).
   const topFranchises = Object.values(franchiseMap)
     .filter(f => f.count >= 2) // single-game "franchises" aren't franchises
-    .map(f => ({ ...f, avgScore: f.ratedCount > 0 ? f.sumScore / f.ratedCount : null }))
-    .sort((a, b) => b.count - a.count || (b.avgScore || 0) - (a.avgScore || 0))
-    .slice(0, 10);
+    .map(f => ({ ...f, avgScore: f.ratedCount > 0 ? f.sumScore / f.ratedCount : null }));
 
   // PREDICTIVENESS — for each rubric category, the lift in avg score
   // among Masterpieces vs. the rest of the Top 50. Positive = the category
@@ -6583,6 +6655,32 @@ const TierStackedBar = ({ rows, labelWidth = '4ch' }) => {
 // franchise thumbnail, count + masterpiece count + average score.
 // -----------------------------------------------------------------------------
 const TopFranchises = ({ rows }) => {
+  const [sort, setSort] = useState('overall'); // 'overall' | 'count' | 'score'
+
+  const sorted = useMemo(() => {
+    const list = [...(rows || [])];
+    // Overall blends breadth + quality: a LOG-normalized game count against
+    // the biggest franchise (0..1) and avg score on the 80–100 tier scale
+    // (0..1), then averaged. Log (vs linear) count gives diminishing returns
+    // — the first games matter most — so a 4-game/97 series clears a tiny
+    // 2-game/100 one, while a big score gap can still let a smaller franchise
+    // win (a 3-game/100 still beats a 6-game/95.8).
+    const maxCount = Math.max(2, ...list.map(f => f.count));
+    const overallScore = (f) => {
+      const countNorm = Math.log(1 + f.count) / Math.log(1 + maxCount);
+      const scoreNorm = f.avgScore != null ? Math.max(0, Math.min(1, (f.avgScore - 80) / 20)) : 0;
+      return (countNorm + scoreNorm) / 2;
+    };
+    if (sort === 'overall') {
+      list.sort((a, b) => overallScore(b) - overallScore(a) || b.count - a.count);
+    } else if (sort === 'score') {
+      list.sort((a, b) => (b.avgScore ?? -1) - (a.avgScore ?? -1) || b.count - a.count);
+    } else {
+      list.sort((a, b) => b.count - a.count || (b.avgScore || 0) - (a.avgScore || 0));
+    }
+    return list.slice(0, 10);
+  }, [rows, sort]);
+
   if (!rows || rows.length === 0) {
     return (
       <div className="text-sm text-zinc-500 text-center py-4">
@@ -6591,8 +6689,21 @@ const TopFranchises = ({ rows }) => {
     );
   }
   return (
-    <div className="space-y-2.5">
-      {rows.map(f => {
+    <div>
+      {/* Sort toggle */}
+      <div className="flex gap-1 glass-light rounded-full p-1 mb-3.5 text-[10px]">
+        {[['overall', 'Overall'], ['count', 'Number of games'], ['score', 'Top score']].map(([v, l]) => (
+          <button
+            key={v}
+            onClick={() => setSort(v)}
+            className={`flex-1 rounded-full px-2 py-1.5 font-medium tracking-wide transition-all whitespace-nowrap ${sort === v ? 'bg-white text-ink-950' : 'text-zinc-400'}`}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+      <div className="space-y-2.5">
+      {sorted.map(f => {
         const cover = effectiveCover(f.recentGame);
         const tier = f.avgScore != null ? TIER(f.avgScore) : null;
         return (
@@ -6621,6 +6732,7 @@ const TopFranchises = ({ rows }) => {
           </div>
         );
       })}
+      </div>
     </div>
   );
 };
@@ -7022,6 +7134,12 @@ const App = () => {
   const updateGame = (g) => setGames(prev => rerankTop50(prev.map(x => x.id === g.id ? g : x)));
   const applyPatchToGame = (id, patch) =>
     setGames(prev => prev.map(x => x.id === id ? { ...x, ...patch } : x));
+  // Tap-to-toggle a completion flag (story / platinum / replayed) straight
+  // from the detail screen — no edit sheet needed.
+  const toggleCompletion = (id, key) =>
+    setGames(prev => prev.map(g => g.id === id
+      ? { ...g, completion: { story: false, platinum: false, replayed: false, ...(g.completion || {}), [key]: !(g.completion?.[key]) } }
+      : g));
   const deleteGame = (id) => {
     setGames(prev => rerankTop50(prev.filter(x => x.id !== id)));
     if (selectedId === id) setSelectedId(null);
@@ -7114,10 +7232,25 @@ const App = () => {
 
   const selected = useMemo(() => games.find(g => g.id === selectedId), [games, selectedId]);
 
+  // Prev/next ordering for the detail screen, following the active section.
+  const navOrder = useMemo(() => buildNavOrder(games, section), [games, section]);
+  const navIdx = selectedId ? navOrder.indexOf(selectedId) : -1;
+  const hasPrev = navIdx > 0;
+  const hasNext = navIdx >= 0 && navIdx < navOrder.length - 1;
+
   return (
     <div className="min-h-screen bg-ink-950 text-zinc-100 max-w-md mx-auto relative">
       {selected ? (
-        <GameDetailScreen game={selected} onBack={() => setSelectedId(null)} onEdit={() => setEditId(selected.id)} />
+        <GameDetailScreen
+          game={selected}
+          onBack={() => setSelectedId(null)}
+          onEdit={() => setEditId(selected.id)}
+          onToggleCompletion={toggleCompletion}
+          onPrev={() => { if (hasPrev) setSelectedId(navOrder[navIdx - 1]); }}
+          onNext={() => { if (hasNext) setSelectedId(navOrder[navIdx + 1]); }}
+          hasPrev={hasPrev}
+          hasNext={hasNext}
+        />
       ) : (
         <>
           {tab === 'library' && (
