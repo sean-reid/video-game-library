@@ -2908,6 +2908,18 @@ const Icon = ({ name, className = 'w-5 h-5', style, filled }) => {
     settings: <><path d="M4 6h13M4 12h7M4 18h11"/><circle cx="20" cy="6" r="1.5" fill="currentColor"/><circle cx="14" cy="12" r="1.5" fill="currentColor"/><circle cx="18" cy="18" r="1.5" fill="currentColor"/></>,
     close:    <path d="M18 6 6 18M6 6l12 12"/>,
     play:     <path d="M5 3l14 9-14 9V3z"/>,
+    pause:    <><rect x="6" y="5" width="4" height="14" rx="0.5"/><rect x="14" y="5" width="4" height="14" rx="0.5"/></>,
+    // Skip-back / skip-forward 15s: circular arrow + "15" in the middle
+    skipBack15: <>
+      <path d="M3 12a9 9 0 1 0 3-6.7"/>
+      <path d="M3 3v6h6"/>
+      <text x="12.5" y="15" fontSize="7" fontWeight="700" textAnchor="middle" fill="currentColor" stroke="none" fontFamily="Inter">15</text>
+    </>,
+    skipForward15: <>
+      <path d="M21 12a9 9 0 1 1-3-6.7"/>
+      <path d="M21 3v6h-6"/>
+      <text x="12" y="15" fontSize="7" fontWeight="700" textAnchor="middle" fill="currentColor" stroke="none" fontFamily="Inter">15</text>
+    </>,
   };
   return (
     <svg className={className} style={style} viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -5444,16 +5456,13 @@ const PodcastCard = ({ pod, onPlay, onViewAll }) => {
           <div className="serif text-[16px] text-white leading-tight mt-1 line-clamp-2">{latest.title}</div>
           <div className="text-[11px] uppercase tracking-wider text-zinc-500 font-medium mt-1.5">{pod.show}</div>
           <div className="flex items-center gap-2 mt-2">
-            <a
-              href={latest.youtubeUrl || pod.youtubeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/15 text-[11px] font-medium"
+            <button
+              onClick={(e) => { e.stopPropagation(); onPlay(pod, latest); }}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white text-ink-950 text-[11px] font-semibold"
             >
-              <Icon name="play" className="w-3 h-3" />
-              YouTube
-            </a>
+              <Icon name="play" className="w-3 h-3" filled />
+              Play
+            </button>
             {latest.duration && (
               <span className="text-[11px] text-zinc-500 tabular-nums ml-auto">{latest.duration}</span>
             )}
@@ -5512,15 +5521,13 @@ const PodcastListSheet = ({ open, pod, onClose, onPlay }) => {
                 </div>
                 <div className="serif text-[15px] text-white leading-snug">{ep.title}</div>
                 <div className="flex items-center gap-2 mt-2.5">
-                  <a
-                    href={ep.youtubeUrl || pod.youtubeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/15 text-[11px] font-medium"
+                  <button
+                    onClick={() => onPlay(pod, ep)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white text-ink-950 text-[11px] font-semibold"
                   >
-                    <Icon name="play" className="w-3 h-3" />
-                    Watch on YouTube
-                  </a>
+                    <Icon name="play" className="w-3 h-3" filled />
+                    Play
+                  </button>
                 </div>
               </div>
             );
@@ -5528,6 +5535,320 @@ const PodcastListSheet = ({ open, pod, onClose, onPlay }) => {
         </div>
       </div>
     </Sheet>
+  );
+};
+
+// =============================================================================
+// IN-APP YOUTUBE PLAYER
+// Renders ONE stable iframe at the App level. Mode === 'expanded' shows a
+// full-screen sheet with custom controls (±15s, scrubber, play/pause); 'mini'
+// parks the iframe off-screen and surfaces a thin bar above the tab nav so
+// audio keeps playing while the user browses other screens. Media Session
+// API is best-effort for lockscreen handlers — iOS PWA + YouTube iframe is
+// known to be flaky.
+// =============================================================================
+const extractYouTubeId = (url) => {
+  if (!url) return null;
+  const m = url.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+};
+
+const formatPlayerTime = (s) => {
+  if (!isFinite(s) || s < 0) return '0:00';
+  const total = Math.floor(s);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  return `${m}:${String(sec).padStart(2, '0')}`;
+};
+
+// Loads the YouTube IFrame API exactly once; returns a promise that resolves
+// when window.YT.Player is callable.
+let ytApiPromise = null;
+const loadYouTubeApi = () => {
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise((resolve) => {
+    if (window.YT && window.YT.Player) return resolve();
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    tag.id = 'yt-iframe-api';
+    document.body.appendChild(tag);
+    // YouTube calls onYouTubeIframeAPIReady globally
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      if (typeof prev === 'function') prev();
+      resolve();
+    };
+  });
+  return ytApiPromise;
+};
+
+const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
+  // The host div for YouTube to mount its iframe into. Must remain in the
+  // DOM across mode changes or the player gets destroyed.
+  const hostRef = useRef(null);
+  const playerRef = useRef(null);
+  const [isReady, setIsReady] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [scrubbing, setScrubbing] = useState(false);
+  const [error, setError] = useState(null);
+
+  const videoId = playing ? extractYouTubeId(playing.episode.youtubeUrl) : null;
+
+  // Create or update the YouTube player whenever the playing item changes
+  useEffect(() => {
+    if (!playing || !videoId) return;
+    let cancelled = false;
+    setError(null);
+
+    loadYouTubeApi().then(() => {
+      if (cancelled || !hostRef.current) return;
+      if (playerRef.current) {
+        try { playerRef.current.loadVideoById(videoId); } catch { /* ignore */ }
+        return;
+      }
+      playerRef.current = new window.YT.Player(hostRef.current, {
+        videoId,
+        width: '100%',
+        height: '100%',
+        playerVars: {
+          autoplay: 1,
+          controls: 0,
+          modestbranding: 1,
+          rel: 0,
+          playsinline: 1,
+          disablekb: 1,
+          fs: 0,
+          iv_load_policy: 3,
+        },
+        events: {
+          onReady: (e) => {
+            if (cancelled) return;
+            setIsReady(true);
+            setDuration(e.target.getDuration() || 0);
+            try { e.target.playVideo(); } catch {}
+          },
+          onStateChange: (e) => {
+            // YT.PlayerState: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
+            const s = e.data;
+            setIsPlaying(s === 1);
+            if (s === 1 || s === 2) {
+              const d = e.target.getDuration() || 0;
+              if (d && Math.abs(d - duration) > 0.5) setDuration(d);
+            }
+          },
+          onError: () => setError('This video can\'t be embedded.'),
+        },
+      });
+    });
+
+    return () => { cancelled = true; };
+  }, [videoId]);
+
+  // Poll currentTime while playing (or while expanded so the scrubber stays live)
+  useEffect(() => {
+    if (!isReady || !playerRef.current) return;
+    const id = setInterval(() => {
+      const p = playerRef.current;
+      if (!p || !p.getCurrentTime || scrubbing) return;
+      const t = p.getCurrentTime();
+      if (typeof t === 'number') setCurrentTime(t);
+      const d = p.getDuration();
+      if (d && Math.abs(d - duration) > 0.5) setDuration(d);
+    }, 500);
+    return () => clearInterval(id);
+  }, [isReady, scrubbing, duration]);
+
+  // Media Session API — best effort for lockscreen handlers
+  useEffect(() => {
+    if (!playing || !('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new window.MediaMetadata({
+        title: playing.episode.title || 'Podcast',
+        artist: playing.pod.show || 'Kinda Funny',
+        artwork: [
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
+        ],
+      });
+      navigator.mediaSession.setActionHandler('play', () => playerRef.current?.playVideo?.());
+      navigator.mediaSession.setActionHandler('pause', () => playerRef.current?.pauseVideo?.());
+      navigator.mediaSession.setActionHandler('seekbackward', () => skip(-15));
+      navigator.mediaSession.setActionHandler('seekforward', () => skip(15));
+    } catch { /* unsupported in some browsers */ }
+  }, [playing]);
+
+  // Sync media session playback state so iOS shows the right indicator
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    try { navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'; } catch {}
+  }, [isPlaying]);
+
+  // Tear down the player when nothing's loaded
+  useEffect(() => {
+    if (playing) return;
+    if (playerRef.current) {
+      try { playerRef.current.destroy(); } catch {}
+      playerRef.current = null;
+      setIsReady(false);
+      setIsPlaying(false);
+      setCurrentTime(0);
+      setDuration(0);
+    }
+  }, [playing]);
+
+  const skip = (delta) => {
+    const p = playerRef.current;
+    if (!p || !p.getCurrentTime) return;
+    const t = (p.getCurrentTime() || 0) + delta;
+    const next = Math.max(0, Math.min(t, duration || t));
+    p.seekTo(next, true);
+    setCurrentTime(next);
+  };
+  const togglePlay = () => {
+    const p = playerRef.current;
+    if (!p) return;
+    if (isPlaying) p.pauseVideo?.();
+    else p.playVideo?.();
+  };
+  const seekTo = (t) => {
+    playerRef.current?.seekTo?.(t, true);
+    setCurrentTime(t);
+  };
+
+  if (!playing) return null;
+
+  return (
+    <>
+      {/* Stable iframe host — moves between visible/off-screen positions via
+          inline style. Must remain in the DOM across mode changes. */}
+      <div
+        className="fixed pointer-events-none"
+        style={mode === 'expanded' ? {
+          top: 56, left: 0, right: 0, margin: '0 auto',
+          width: 'min(calc(100% - 32px), 416px)',
+          aspectRatio: '16 / 9',
+          zIndex: 55,
+        } : {
+          left: '-10000px', top: 0, width: 1, height: 1, overflow: 'hidden',
+        }}
+      >
+        <div className="w-full h-full bg-black rounded-2xl overflow-hidden pointer-events-auto">
+          <div ref={hostRef} className="w-full h-full" />
+        </div>
+      </div>
+
+      {/* EXPANDED — full-screen sheet with custom controls */}
+      {mode === 'expanded' && (
+        <div className="fixed inset-0 z-50 bg-ink-950 flex flex-col max-w-md mx-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between px-3 pt-3 pb-2 shrink-0">
+            <button onClick={onMinimize} className="glass-light rounded-full p-2" aria-label="Minimize">
+              <Icon name="arrowDown" className="w-5 h-5 text-zinc-300" />
+            </button>
+            <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-medium">
+              Now playing
+            </div>
+            <button onClick={onClose} className="glass-light rounded-full p-2" aria-label="Close player">
+              <Icon name="close" className="w-5 h-5 text-zinc-300" />
+            </button>
+          </div>
+
+          {/* Spacer matching iframe's fixed position so the layout flows below it */}
+          <div style={{ aspectRatio: '16 / 9', width: 'min(calc(100% - 32px), 416px)', margin: '0 auto' }} className="shrink-0" />
+
+          {/* Title + show */}
+          <div className="px-5 mt-5 shrink-0">
+            <div className="text-[11px] uppercase tracking-[0.18em] font-medium" style={{ color: playing.pod.accent || '#d4a574' }}>
+              {playing.pod.show}
+            </div>
+            <h2 className="serif text-[22px] leading-tight text-white mt-1 line-clamp-3">{playing.episode.title}</h2>
+            {error && <div className="text-[12px] text-rose-300/80 mt-3">{error}</div>}
+          </div>
+
+          {/* Scrubber */}
+          <div className="px-5 mt-6 shrink-0">
+            <input
+              type="range"
+              min={0}
+              max={duration || 1}
+              step={0.5}
+              value={currentTime}
+              onChange={(e) => { setScrubbing(true); setCurrentTime(parseFloat(e.target.value)); }}
+              onMouseUp={(e) => { seekTo(parseFloat(e.target.value)); setScrubbing(false); }}
+              onTouchEnd={(e) => { seekTo(parseFloat(e.target.value)); setScrubbing(false); }}
+              className="w-full"
+              style={{ accentColor: '#e2b878' }}
+            />
+            <div className="flex justify-between text-[11px] text-zinc-500 tabular-nums mt-1">
+              <span>{formatPlayerTime(currentTime)}</span>
+              <span>{formatPlayerTime(duration)}</span>
+            </div>
+          </div>
+
+          {/* Transport controls */}
+          <div className="mt-8 flex items-center justify-center gap-10 shrink-0">
+            <button onClick={() => skip(-15)} className="text-zinc-200 active:scale-95 transition-transform" aria-label="Back 15 seconds">
+              <Icon name="skipBack15" className="w-10 h-10" />
+            </button>
+            <button
+              onClick={togglePlay}
+              className="bg-white text-ink-950 rounded-full w-16 h-16 flex items-center justify-center active:scale-95 transition-transform"
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+            >
+              <Icon name={isPlaying ? 'pause' : 'play'} className="w-7 h-7" filled />
+            </button>
+            <button onClick={() => skip(15)} className="text-zinc-200 active:scale-95 transition-transform" aria-label="Forward 15 seconds">
+              <Icon name="skipForward15" className="w-10 h-10" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MINI BAR — pinned to the bottom safe area while iframe plays off-screen */}
+      {mode === 'mini' && (
+        <div className="fixed bottom-0 inset-x-0 z-40 pointer-events-none">
+          <div className="max-w-md mx-auto pb-safe">
+            <div
+              className="mx-3 mb-3 glass rounded-2xl flex items-center gap-3 p-2 pointer-events-auto cursor-pointer"
+              onClick={onExpand}
+              role="button"
+              aria-label="Expand player"
+            >
+              <div
+                className="w-11 h-11 rounded-xl overflow-hidden shrink-0 grain flex items-center justify-center text-xl"
+                style={{ background: playing.pod.coverGradient }}
+              >
+                🎙️
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[12.5px] text-white truncate leading-tight">{playing.episode.title}</div>
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium truncate mt-0.5">
+                  {playing.pod.show} · {formatPlayerTime(currentTime)} / {formatPlayerTime(duration)}
+                </div>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+                className="bg-white text-ink-950 rounded-full w-9 h-9 flex items-center justify-center shrink-0"
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+              >
+                <Icon name={isPlaying ? 'pause' : 'play'} className="w-4 h-4" filled />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onClose(); }}
+                className="p-2 rounded-full shrink-0"
+                aria-label="Close player"
+              >
+                <Icon name="close" className="w-4 h-4 text-zinc-400" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -5612,18 +5933,17 @@ const NewsFilters = ({ active, onChange }) => (
 );
 
 // =============================================================================
-// READER / PLAYER SHEET — placeholder, opens via the link-out for now
+// ARTICLE READER SHEET — fetches the full article body via the worker.
+// (Podcast playback is handled by PodcastPlayer; this sheet is articles only.)
 // =============================================================================
 const ReaderSheet = ({ open, item, onClose, onMarkRead }) => {
-  const isPodcast = !!item?.show;
   const [article, setArticle] = useState(null);
   const [loadingArticle, setLoadingArticle] = useState(false);
   const [articleError, setArticleError] = useState(null);
   const [imageFailed, setImageFailed] = useState(false);
 
-  // Fetch the full article body when a non-podcast item opens
   useEffect(() => {
-    if (!open || !item || isPodcast || !item.url) return;
+    if (!open || !item?.url) return;
     setLoadingArticle(true);
     setArticle(null);
     setArticleError(null);
@@ -5636,144 +5956,111 @@ const ReaderSheet = ({ open, item, onClose, onMarkRead }) => {
       })
       .catch((e) => setArticleError(e.message || String(e)))
       .finally(() => setLoadingArticle(false));
-  }, [open, item, isPodcast]);
+  }, [open, item]);
 
   if (!open || !item) return null;
   const sourceColor = SOURCE_COLORS[item.source] || '#a1a1aa';
   const hero = article?.heroImage || item.coverImage;
   const showHero = hero && !imageFailed;
 
-  const right = isPodcast ? (
-    <a
-      href={item._linkOut || item.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-[14px] font-semibold"
-      style={{ color: '#d4a574' }}
-    >
-      Open
-    </a>
-  ) : (
-    <button
-      onClick={() => { onMarkRead?.(articleKey(item)); onClose(); }}
-      className="text-[14px] font-semibold"
-      style={{ color: '#d4a574' }}
-    >
-      Mark read
-    </button>
-  );
-
   return (
     <Sheet
       open={open}
       onClose={onClose}
-      title={isPodcast ? 'Now playing' : 'Article'}
+      title="Article"
       leftAction={<button onClick={onClose} className="text-zinc-400 text-[14px]">Close</button>}
-      rightAction={right}
+      rightAction={
+        <button
+          onClick={() => { onMarkRead?.(articleKey(item)); onClose(); }}
+          className="text-[14px] font-semibold"
+          style={{ color: '#d4a574' }}
+        >
+          Mark read
+        </button>
+      }
     >
       <div className="px-4 py-6">
-        {isPodcast ? (
-          <>
-            <div className="rounded-2xl overflow-hidden mb-4 grain" style={{ background: item.coverGradient, height: 160 }}>
-              <div className="h-full flex items-center justify-center text-5xl">🎙️</div>
-            </div>
-            <div className="text-[11px] uppercase tracking-[0.18em] font-medium mb-1" style={{ color: item.accent }}>
-              {item.show}
-            </div>
-            <h2 className="serif text-[24px] leading-tight text-white">{item.latestEpisode.title}</h2>
-            <div className="text-[12px] text-zinc-500 mt-2">{item.latestEpisode.duration}</div>
-            <div className="mt-6 glass rounded-2xl p-4">
-              <p className="text-sm text-zinc-300 leading-relaxed">
-                Tap <strong className="text-white">Open</strong> above to listen on{' '}
-                {item._platform === 'spotify' ? 'Spotify' : 'YouTube'}.
-              </p>
-            </div>
-          </>
+        {showHero ? (
+          <div className="rounded-2xl overflow-hidden mb-4 aspect-[16/9]" style={{ background: '#0a0a0c' }}>
+            <img
+              src={hero}
+              alt=""
+              className="w-full h-full object-cover"
+              onError={() => setImageFailed(true)}
+            />
+          </div>
         ) : (
-          <>
-            {showHero ? (
-              <div className="rounded-2xl overflow-hidden mb-4 aspect-[16/9]" style={{ background: '#0a0a0c' }}>
-                <img
-                  src={hero}
-                  alt=""
-                  className="w-full h-full object-cover"
-                  onError={() => setImageFailed(true)}
-                />
-              </div>
-            ) : (
-              <div className="rounded-2xl overflow-hidden mb-4 aspect-[16/9] flex items-center justify-center text-6xl"
-                   style={{ background: `${sourceColor}26` }}>
-                🎮
-              </div>
-            )}
-            <div className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: sourceColor }}>
-              {item.source} · {timeAgo(item.publishedAt)}
-            </div>
-            <h2 className="serif text-[26px] leading-tight text-white mt-2">{item.title}</h2>
-            {(article?.byline) && (
-              <div className="text-[12px] text-zinc-500 mt-2">By {article.byline}</div>
-            )}
+          <div className="rounded-2xl overflow-hidden mb-4 aspect-[16/9] flex items-center justify-center text-6xl"
+               style={{ background: `${sourceColor}26` }}>
+            🎮
+          </div>
+        )}
+        <div className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: sourceColor }}>
+          {item.source} · {timeAgo(item.publishedAt)}
+        </div>
+        <h2 className="serif text-[26px] leading-tight text-white mt-2">{item.title}</h2>
+        {article?.byline && (
+          <div className="text-[12px] text-zinc-500 mt-2">By {article.byline}</div>
+        )}
 
-            {loadingArticle && (
-              <div className="mt-6 space-y-3 animate-pulse">
-                <div className="h-3 w-full bg-white/5 rounded" />
-                <div className="h-3 w-11/12 bg-white/5 rounded" />
-                <div className="h-3 w-10/12 bg-white/5 rounded" />
-                <div className="h-3 w-9/12 bg-white/5 rounded" />
-              </div>
-            )}
+        {loadingArticle && (
+          <div className="mt-6 space-y-3 animate-pulse">
+            <div className="h-3 w-full bg-white/5 rounded" />
+            <div className="h-3 w-11/12 bg-white/5 rounded" />
+            <div className="h-3 w-10/12 bg-white/5 rounded" />
+            <div className="h-3 w-9/12 bg-white/5 rounded" />
+          </div>
+        )}
 
-            {articleError && (
-              <div className="mt-6 glass rounded-2xl p-4">
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  Couldn't load the article body. Here's the excerpt:
-                </p>
-                <p className="text-zinc-300 mt-3 leading-relaxed">{item.excerpt}</p>
-                <a
-                  href={item.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-4 inline-block text-[13px] font-semibold"
-                  style={{ color: '#d4a574' }}
-                >
-                  Read on {item.source} →
-                </a>
-              </div>
-            )}
+        {articleError && (
+          <div className="mt-6 glass rounded-2xl p-4">
+            <p className="text-sm text-zinc-400 leading-relaxed">
+              Couldn't load the article body. Here's the excerpt:
+            </p>
+            <p className="text-zinc-300 mt-3 leading-relaxed">{item.excerpt}</p>
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 inline-block text-[13px] font-semibold"
+              style={{ color: '#d4a574' }}
+            >
+              Read on {item.source} →
+            </a>
+          </div>
+        )}
 
-            {article && article.content && (
-              <div
-                className="article-body mt-5"
-                dangerouslySetInnerHTML={{ __html: article.content }}
-              />
-            )}
+        {article?.content && (
+          <div
+            className="article-body mt-5"
+            dangerouslySetInnerHTML={{ __html: article.content }}
+          />
+        )}
 
-            {article && !article.content && !loadingArticle && !articleError && (
-              <div className="mt-6 glass rounded-2xl p-4">
-                <p className="text-zinc-300 leading-relaxed">{item.excerpt}</p>
-                <a
-                  href={item.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-4 inline-block text-[13px] font-semibold"
-                  style={{ color: '#d4a574' }}
-                >
-                  Read full article on {item.source} →
-                </a>
-              </div>
-            )}
+        {article && !article.content && !loadingArticle && !articleError && (
+          <div className="mt-6 glass rounded-2xl p-4">
+            <p className="text-zinc-300 leading-relaxed">{item.excerpt}</p>
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 inline-block text-[13px] font-semibold"
+              style={{ color: '#d4a574' }}
+            >
+              Read full article on {item.source} →
+            </a>
+          </div>
+        )}
 
-            {article && article.content && (
-              <a
-                href={item.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-8 inline-block text-[12px] text-zinc-500 hover:text-zinc-300"
-              >
-                View original on {item.source} →
-              </a>
-            )}
-          </>
+        {article?.content && (
+          <a
+            href={item.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-8 inline-block text-[12px] text-zinc-500 hover:text-zinc-300"
+          >
+            View original on {item.source} →
+          </a>
         )}
       </div>
     </Sheet>
@@ -5814,6 +6101,11 @@ const StatsScreen = ({ games, tab, onTabChange }) => {
         <TierStackedBar rows={stats.byPlatformTiers} labelWidth="5rem" />
       </SectionCard>
 
+      {/* Top franchises — most-played series, by count then avg score */}
+      <SectionCard title="Top franchises" subtitle="Series with the most games in your library">
+        <TopFranchises rows={stats.topFranchises} />
+      </SectionCard>
+
       {/* What you value — predictiveness spider */}
       <SectionCard title="What you value" subtitle="Categories that distinguish Masterpieces from other Top 50 games">
         <PredictivenessRadar
@@ -5840,6 +6132,62 @@ const StatsScreen = ({ games, tab, onTabChange }) => {
 // -----------------------------------------------------------------------------
 // Stats computation
 // -----------------------------------------------------------------------------
+// Franchise rules — title-prefix regexes that bucket games into series. Order
+// matters: more specific patterns first so e.g. "Mario Kart" wins over "Mario".
+const FRANCHISE_RULES = [
+  { match: /^pok[eé]mon\b|^pokopia\b|^new pok[eé]mon\b/i,                                                label: 'Pokémon' },
+  { match: /^(the )?(legend of )?zelda\b|^zelda:|^hyrule warriors\b|^a link to the past\b/i,             label: 'Zelda' },
+  { match: /^super smash bros/i,                                                                         label: 'Smash Bros.' },
+  { match: /^mario kart\b/i,                                                                             label: 'Mario Kart' },
+  { match: /^(super |new super )?mario\b|^paper mario\b|^mario party\b|^3d mario\b|^luigi'?s mansion\b/i, label: 'Mario' },
+  { match: /^god of war\b/i,                                                                             label: 'God of War' },
+  { match: /^spider-?man\b/i,                                                                            label: 'Spider-Man' },
+  { match: /^the last of us\b/i,                                                                         label: 'The Last of Us' },
+  { match: /^uncharted\b/i,                                                                              label: 'Uncharted' },
+  { match: /^grand theft auto\b|^gta\b/i,                                                                label: 'Grand Theft Auto' },
+  { match: /^red dead\b/i,                                                                               label: 'Red Dead' },
+  { match: /^final fantasy\b/i,                                                                          label: 'Final Fantasy' },
+  { match: /^assassin'?s creed\b/i,                                                                      label: "Assassin's Creed" },
+  { match: /^dark souls\b/i,                                                                             label: 'Dark Souls' },
+  { match: /^mass effect\b/i,                                                                            label: 'Mass Effect' },
+  { match: /^metroid\b/i,                                                                                label: 'Metroid' },
+  { match: /^kingdom hearts\b/i,                                                                         label: 'Kingdom Hearts' },
+  { match: /^persona\b/i,                                                                                label: 'Persona' },
+  { match: /^resident evil\b/i,                                                                          label: 'Resident Evil' },
+  { match: /^splatoon\b/i,                                                                               label: 'Splatoon' },
+  { match: /^hollow knight\b/i,                                                                          label: 'Hollow Knight' },
+  { match: /^horizon\b/i,                                                                                label: 'Horizon' },
+  { match: /^(the )?witcher\b/i,                                                                         label: 'The Witcher' },
+  { match: /^fire emblem\b/i,                                                                            label: 'Fire Emblem' },
+  { match: /^donkey kong\b|^diddy kong\b/i,                                                              label: 'Donkey Kong' },
+  { match: /^kirby\b/i,                                                                                  label: 'Kirby' },
+  { match: /^ratchet (&|and) clank\b/i,                                                                  label: 'Ratchet & Clank' },
+  { match: /^jak and daxter\b/i,                                                                         label: 'Jak and Daxter' },
+  { match: /^(lego )?star wars\b/i,                                                                      label: 'Star Wars' },
+  { match: /^tomb raider\b/i,                                                                            label: 'Tomb Raider' },
+  { match: /^sonic\b|^shadow the hedgehog\b/i,                                                           label: 'Sonic' },
+  { match: /^ghost of\b/i,                                                                               label: 'Ghost (Sucker Punch)' },
+  { match: /^hellblade\b/i,                                                                              label: 'Hellblade' },
+  { match: /^death stranding\b/i,                                                                        label: 'Death Stranding' },
+  { match: /^black myth\b/i,                                                                             label: 'Black Myth' },
+  { match: /^wario ?ware\b/i,                                                                            label: 'WarioWare' },
+  { match: /^astro\b/i,                                                                                  label: 'Astro Bot' },
+  { match: /^batman\b/i,                                                                                 label: 'Batman: Arkham' },
+  { match: /^banjo\b/i,                                                                                  label: 'Banjo-Kazooie' },
+  { match: /^star ?fox\b/i,                                                                              label: 'Star Fox' },
+  { match: /^metal gear\b/i,                                                                             label: 'Metal Gear' },
+  { match: /^bayonetta\b/i,                                                                              label: 'Bayonetta' },
+  { match: /^hogwarts\b|^harry potter\b/i,                                                               label: 'Wizarding World' },
+  { match: /^silent hill\b/i,                                                                            label: 'Silent Hill' },
+  { match: /^tony hawk\b/i,                                                                              label: 'Tony Hawk' },
+];
+
+const franchiseOf = (game) => {
+  const t = (game.title || '').trim();
+  for (const r of FRANCHISE_RULES) if (r.match.test(t)) return r.label;
+  return null;
+};
+
 // Bucket every played game into one of four bands:
 //   Masterpiece (Top 50 + score ≥100), Amazing (Top 50 + 90-99),
 //   Great (Top 50 + 80-89), Other (played but not in Top 50)
@@ -5883,6 +6231,40 @@ const computeStats = (games) => {
   });
   const byPlatformTiers = Object.values(platformMap).sort((a, b) => b.total - a.total);
 
+  // TOP FRANCHISES — group played games by franchise, surface counts +
+  // avg score + masterpiece count. Thumbnail picks the highest-scored game
+  // that has a cover, falling back to the most-recent game.
+  const franchiseMap = {};
+  played.forEach(g => {
+    const f = franchiseOf(g);
+    if (!f) return;
+    if (!franchiseMap[f]) {
+      franchiseMap[f] = { label: f, count: 0, sumScore: 0, ratedCount: 0, masterpieces: 0, games: [] };
+    }
+    const row = franchiseMap[f];
+    row.count++;
+    row.games.push(g);
+    if (g.rating?.total != null) {
+      row.sumScore += g.rating.total;
+      row.ratedCount++;
+      if (g.rating.total >= 100) row.masterpieces++;
+    }
+  });
+  Object.values(franchiseMap).forEach(row => {
+    const withCover = row.games.filter(g => effectiveCover(g));
+    const pool = withCover.length > 0 ? withCover : row.games;
+    pool.sort((a, b) =>
+      (b.rating?.total || 0) - (a.rating?.total || 0) ||
+      (primaryYear(b) || 0) - (primaryYear(a) || 0)
+    );
+    row.recentGame = pool[0];
+  });
+  const topFranchises = Object.values(franchiseMap)
+    .filter(f => f.count >= 2) // single-game "franchises" aren't franchises
+    .map(f => ({ ...f, avgScore: f.ratedCount > 0 ? f.sumScore / f.ratedCount : null }))
+    .sort((a, b) => b.count - a.count || (b.avgScore || 0) - (a.avgScore || 0))
+    .slice(0, 10);
+
   // PREDICTIVENESS — for each rubric category, the lift in avg score
   // among Masterpieces vs. the rest of the Top 50. Positive = the category
   // distinguishes Masterpieces; ~0 = no signal; negative = anti-signal.
@@ -5916,6 +6298,7 @@ const computeStats = (games) => {
   return {
     totalPlayed, totalRated, totalHours,
     byYearTiers, byPlatformTiers,
+    topFranchises,
     predictiveness,
     masterpiecesCount: masterpieces.length,
     otherTop50Count: otherTop50.length,
@@ -6016,6 +6399,53 @@ const TierStackedBar = ({ rows, labelWidth = '4ch' }) => {
           <div className="text-[11px] text-zinc-500 tabular-nums w-6 shrink-0 text-right">{r.total}</div>
         </div>
       ))}
+    </div>
+  );
+};
+
+// -----------------------------------------------------------------------------
+// Top franchises — vertical list with the most-recent game's cover as the
+// franchise thumbnail, count + masterpiece count + average score.
+// -----------------------------------------------------------------------------
+const TopFranchises = ({ rows }) => {
+  if (!rows || rows.length === 0) {
+    return (
+      <div className="text-sm text-zinc-500 text-center py-4">
+        Need at least 2 games from the same franchise to surface a series here.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2.5">
+      {rows.map(f => {
+        const cover = effectiveCover(f.recentGame);
+        const tier = f.avgScore != null ? TIER(f.avgScore) : null;
+        return (
+          <div key={f.label} className="flex items-center gap-3">
+            <div
+              className="w-10 h-14 rounded-md overflow-hidden shrink-0 grain"
+              style={cover ? { background: '#0a0a0c' } : { background: gradientFor(f.recentGame) }}
+            >
+              {cover && <img src={cover} alt="" loading="lazy" className="w-full h-full object-cover" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="serif text-[15px] text-white truncate">{f.label}</div>
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium mt-0.5">
+                {f.count} game{f.count === 1 ? '' : 's'}
+                {f.masterpieces > 0 && ` · ${f.masterpieces} masterpiece${f.masterpieces === 1 ? '' : 's'}`}
+              </div>
+            </div>
+            {f.avgScore != null && (
+              <div className="text-right shrink-0">
+                <div className="text-[15px] font-semibold tabular-nums" style={{ color: tier.color }}>
+                  {f.avgScore.toFixed(1)}
+                </div>
+                <div className="text-[9px] uppercase tracking-wider text-zinc-500 font-medium">avg</div>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -6131,7 +6561,7 @@ const CompletionBars = ({ completion, totalRated }) => {
   );
 };
 
-const NewsScreen = ({ games, onSelect, tab, onTabChange }) => {
+const NewsScreen = ({ games, onSelect, tab, onTabChange, onPlayEpisode }) => {
   const [dismissed, setDismissed] = useState(loadDismissed);
   const [filter, setFilter] = useState('all');
   const [reader, setReader] = useState(null);
@@ -6173,13 +6603,12 @@ const NewsScreen = ({ games, onSelect, tab, onTabChange }) => {
     return headlines.filter(a => a.category === filter);
   }, [filter, headlines, games]);
 
-  const openPodcast = (pod, episode, platform) => {
-    setReader({
-      ...pod,
-      latestEpisode: episode,
-      _linkOut: platform === 'spotify' ? pod.spotifyUrl : (episode.youtubeUrl || pod.youtubeUrl),
-      _platform: platform,
-    });
+  // Play the latest/selected episode in the in-app player at App level.
+  // The previous ReaderSheet podcast branch (an external-link CTA) is gone —
+  // we now play the YouTube video inline with custom transport controls.
+  const openPodcast = (pod, episode) => {
+    onPlayEpisode?.(pod, episode || pod.episodes?.[0]);
+    setListPod(null); // close the episode list if it was open
   };
 
   // Pull-to-refresh
@@ -6381,6 +6810,17 @@ const App = () => {
   const [backupOpen, setBackupOpen] = useState(false);
   const [gistConfig, setGistConfig] = useState(loadGistConfig);
 
+  // In-app podcast player — state lifted here so the iframe persists
+  // across tab/screen changes and the player can collapse into a mini bar.
+  const [playingEpisode, setPlayingEpisode] = useState(null); // { pod, episode }
+  const [playerMode, setPlayerMode] = useState('expanded');   // 'expanded' | 'mini'
+  const playEpisode = (pod, episode) => {
+    if (!episode) return;
+    setPlayingEpisode({ pod, episode });
+    setPlayerMode('expanded');
+  };
+  const closePlayer = () => setPlayingEpisode(null);
+
   // Auto-sync to Gist 5 seconds after the last games change (debounced).
   // Skips the very first effect run so we don't immediately push on mount.
   const skipFirstGistSync = useRef(true);
@@ -6528,6 +6968,7 @@ const App = () => {
               onSelect={g => openDetail(g.id)}
               tab={tab}
               onTabChange={setTab}
+              onPlayEpisode={playEpisode}
             />
           )}
           {tab === 'stats' && (
@@ -6562,6 +7003,16 @@ const App = () => {
         setGames={setGames}
         gistConfig={gistConfig}
         setGistConfig={setGistConfig}
+      />
+
+      {/* In-app YouTube player. Stays mounted while a podcast is loaded so
+          the iframe survives mode/tab changes. */}
+      <PodcastPlayer
+        playing={playingEpisode}
+        mode={playerMode}
+        onMinimize={() => setPlayerMode('mini')}
+        onExpand={() => setPlayerMode('expanded')}
+        onClose={closePlayer}
       />
     </div>
   );

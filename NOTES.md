@@ -41,8 +41,14 @@
   - "Score vs. release year" — horizontal stacked bars per year (most-recent first, back through 2017), tiers = Masterpiece / Amazing / Great / Played (non-Top 50).
   - "Score vs. system" — same stacked-bar shape per platform, sorted by total played.
   - "What you value" — predictiveness radar. For each rubric category, lift = avg(C among Masterpieces) − avg(C among non-Masterpiece Top 50). Max lift reaches outer ring; 0 sits at center. Reveals which categories actually distinguish Masterpieces (e.g. Audio and Endurance can rank higher than Narrative even when Narrative averages high overall).
+  - "Top franchises" — vertical list of series with ≥2 games, sorted by count then avg score (top 10). Each row: thumbnail (highest-rated series game with a cover, fallback most-recent), franchise label, count + masterpieces, avg score badge tier-colored. Franchises derived from FRANCHISE_RULES title-prefix regexes (ordered most-specific first).
   - "Completion" — story / platinum / replayed bars (moved to bottom).
   All hand-rolled SVG / div bars, computed in computeStats(games).
+- **In-app YouTube player** — PodcastPlayer lifted to App level so the iframe survives tab/screen changes. Two modes:
+  - Expanded: full-screen sheet with YouTube IFrame (controls=0, modestbranding, playsinline), custom transport (±15s skip with circular-arrow icons, big play/pause, scrubber with current/total time, minimize ▾ and close ✕ in header).
+  - Mini: thin glass bar pinned to bottom safe area with show name + truncated title + play/pause + close. Tap anywhere else to re-expand. Iframe is parked off-screen (left: -10000px, 1×1 px) so audio keeps playing.
+  - YouTube IFrame API loaded once via `loadYouTubeApi()` promise. State updates polled at 500ms while playing. Media Session API metadata + play/pause/seekbackward/seekforward handlers wired best-effort for lockscreen control (iOS PWA + iframe is known flaky).
+  - PodcastCard + PodcastListSheet's old `<a target="_blank">` YouTube links now call `onPlay(pod, episode)`; openPodcast in NewsScreen drops Spotify/_linkOut and calls App-level `playEpisode`. ReaderSheet is now articles-only (podcast branch removed).
 - Backup & data sheet — consolidated import/export plus Gist sync under a single sliders icon (settings icon name)
 - Spotify integration removed (was linking wrong shows); YouTube buttons go direct to YouTube via <a target="_blank">
 - **Recommended for you** — Recommended section split into two rows:
@@ -52,11 +58,10 @@
   - Enrichment now also captures rawgGenres + rawgMetacritic from the existing search response (free, no extra API calls).
 
 ## Still planned (in priority order)
-1. **In-app YouTube player** — embedded YouTube IFrame Player in reader sheet with custom controls (play/pause, ±15 sec skip, scrubber). Media Session API for lockscreen handlers (best effort — iOS PWA + iframe is hit-or-miss). User likes the 15-sec skip when phone is locked.
+- (nothing big in queue — open thread.)
 
 ## Stats page extensions (not yet built)
 - Filter the stats by platform / tier / year ("show me my taste profile for just PS5 games")
-- Top franchises (would need series-tag tracking)
 - Score trend over time (would need rating-change history; not currently stored)
 
 ## Open questions / known issues
@@ -75,4 +80,4 @@
 
 ## How to resume
 Start a fresh chat with:
-> Continue building my video game library app at ~/video-game-library. Read NOTES.md for context, then let's build [YouTube player].
+> Continue building my video game library app at ~/video-game-library. Read NOTES.md for context.
