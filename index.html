@@ -5096,6 +5096,7 @@ const buildNavOrder = (games, section) => {
   return list.map(g => g.id);
 };
 
+  
 const GameDetailScreen = ({ game, onBack, onEdit, onToggleCompletion, onPrev, onNext, hasPrev, hasNext }) => {
   const tier = game.rating ? TIER(game.rating.total) : null;
   const color = tier?.color || '#a1a1aa';
