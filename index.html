@@ -186,7 +186,7 @@
 <body class="bg-ink-950 text-zinc-100">
 <div id="root"></div>
 
-<script type="text/babel" data-type="module">
+<script type="text/jsx-source" id="app-source">
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // =============================================================================
@@ -7375,6 +7375,17 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW registration failed:', err));
   });
 }
+</script>
+<script>
+(function () {
+  const src = document.getElementById('app-source').textContent;
+  const out = Babel.transform(src, {
+    presets: [['react', { runtime: 'classic' }]],
+  }).code;
+  const s = document.createElement('script');
+  s.textContent = out;
+  document.body.appendChild(s);
+})();
 </script>
 </body>
 </html>
