@@ -1,0 +1,19 @@
+node_modules
+dist
+build
+.output
+.vite
+.turbo
+coverage
+test-results
+playwright-report
+pnpm-lock.yaml
+*.min.js
+*.min.css
+
+# Legacy files preserved unmodified during modernization (rewritten in docs phase)
+index.html
+worker.js
+sw.js
+NOTES.md
+README.md
