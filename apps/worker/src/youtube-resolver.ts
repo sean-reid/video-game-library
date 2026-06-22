@@ -21,14 +21,39 @@ export async function resolveYouTubeChannelId(handleOrUrl: string): Promise<stri
   return null;
 }
 
-// "Kinda Funny Games Daily 05-29-26 — GTA VI date locked" → "GTA VI date locked"
+const DATE_RE = /\d{1,2}[-./]\d{1,2}[-./]\d{2,4}/;
+const SEPARATOR_RE = /^[—–\-:|]\s*/;
+const SEPARATOR_TRAILING_RE = /\s*[—–\-:|]\s*$/;
+
+// Strip the show name plus any adjacent date from either the head or tail of a
+// YouTube video title. Handles both legacy "Show 05-29-26 - Headline" and the
+// current "Headline - Show 05.29.26" format.
+//   "Kinda Funny Games Daily 05-29-26 — GTA VI date locked" → "GTA VI date locked"
+//   "PlayStation Ditches PC - Kinda Funny Games Daily 06.19.26" → "PlayStation Ditches PC"
 export function cleanEpisodeTitle(title: string, showName: string): string {
+  if (!showName) return title;
+  const lowerShow = showName.toLowerCase();
   let t = title;
-  if (showName) {
-    const idx = t.toLowerCase().indexOf(showName.toLowerCase());
-    if (idx === 0) t = t.slice(showName.length).trim();
+  const lowerT = t.toLowerCase();
+
+  const leading = lowerT.indexOf(lowerShow);
+  if (leading === 0) {
+    t = t.slice(showName.length).trim();
+    t = t.replace(new RegExp(`^\\s*${DATE_RE.source}\\s*`), '').trim();
+    t = t.replace(SEPARATOR_RE, '').trim();
+    return t || title;
   }
-  t = t.replace(/^\s*\d{1,2}[-./]\d{1,2}[-./]\d{2,4}\s*/, '').trim();
-  t = t.replace(/^[—–\-:|]\s*/, '').trim();
-  return t || title;
+
+  const trailing = lowerT.lastIndexOf(lowerShow);
+  if (trailing > 0) {
+    let head = t.slice(0, trailing).trim();
+    const tail = t.slice(trailing + showName.length).trim();
+    // If the tail is empty or just a date, strip the whole show+date suffix.
+    if (!tail || new RegExp(`^${DATE_RE.source}$`).test(tail)) {
+      head = head.replace(SEPARATOR_TRAILING_RE, '');
+      return head || title;
+    }
+  }
+
+  return title;
 }
