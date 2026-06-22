@@ -20,3 +20,6 @@ README.md
 
 # Bundled-but-not-rewritten copy of the original single-file app
 apps/web/src/legacy/**
+
+# Verbatim seed data extracted from the legacy bundle
+apps/web/src/data/seed.js
