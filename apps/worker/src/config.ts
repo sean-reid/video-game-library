@@ -6,6 +6,8 @@ export const HEADLINES_PER_SOURCE = 12;
 export const HEADLINES_TOTAL = 100;
 export const PODCAST_EPISODES = 8;
 export const ARTICLE_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+export const RAWG_BASE = 'https://api.rawg.io/api';
+export const RAWG_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 // `dedicated: true` means the feed is gaming-only — we trust it.
 // `dedicated: false` means we require a gaming keyword in the article before
