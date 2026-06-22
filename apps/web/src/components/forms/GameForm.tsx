@@ -9,7 +9,7 @@ import { StateSelector } from './inputs/StateSelector.js';
 import { TextArea } from './inputs/TextArea.js';
 import { TextInput } from './inputs/TextInput.js';
 import { Toggle } from './inputs/Toggle.js';
-import { blankRating, ratingTotal, type GameFormState } from './gameForm.js';
+import { blankRating, ratingTotal, type GameFormState } from './gameFormState.js';
 
 interface GameFormProps {
   form: GameFormState;

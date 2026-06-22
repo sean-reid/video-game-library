@@ -40,6 +40,12 @@ import {
   parseChapters,
 } from '../services/youtubeApi.ts';
 import { GameCard } from '../components/cards/GameCard.tsx';
+import { AddGameSheet } from '../components/sheets/AddGameSheet.tsx';
+import { EditGameSheet } from '../components/sheets/EditGameSheet.tsx';
+import { PodcastListSheet } from '../components/sheets/PodcastListSheet.tsx';
+import { ReaderSheet, articleKey } from '../components/sheets/ReaderSheet.tsx';
+import { RecActionSheet } from '../components/sheets/RecActionSheet.tsx';
+import { Sheet } from '../components/sheets/Sheet.tsx';
 import { GameForm } from '../components/forms/GameForm.tsx';
 import { RawgSearch } from '../components/forms/RawgSearch.tsx';
 import {
@@ -47,7 +53,7 @@ import {
   formFromGame,
   formFromRawg,
   formToGame,
-} from '../components/forms/gameForm.ts';
+} from '../components/forms/gameFormState.ts';
 import { FormSection } from '../components/forms/inputs/FormSection.tsx';
 import { RatingSliderRow } from '../components/forms/inputs/RatingSliderRow.tsx';
 import { StateSelector } from '../components/forms/inputs/StateSelector.tsx';
@@ -391,63 +397,6 @@ const RumoredView = ({ games, onSelect, onReorder }) => {
   );
 };
 
-
-// Bottom action sheet shown when a "For you" card is tapped.
-const RecActionSheet = ({ candidate, onClose, onSave, onDismiss }) => {
-  useEffect(() => {
-    if (!candidate) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, [candidate]);
-  if (!candidate) return null;
-  const plat = shortPlatform(pickBestPlatform(candidate.platforms));
-  const metaLine = [candidate.year, plat].filter(Boolean).join(' · ');
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative mt-auto bg-ink-950 rounded-t-3xl border-t border-white/10 max-w-md mx-auto w-full pb-safe">
-        <div className="flex justify-center pt-2 pb-1">
-          <div className="w-9 h-1 rounded-full bg-white/15" />
-        </div>
-        <div className="px-5 pt-3 pb-4 flex items-center gap-3 border-b border-white/5">
-          <div className="w-14 h-[72px] rounded-lg overflow-hidden shrink-0" style={candidate.coverImage ? { background: '#0a0a0c' } : { background: gradientFor({ title: candidate.title, platform: plat }) }}>
-            {candidate.coverImage && (
-              <img src={candidate.coverImage} alt="" className="w-full h-full object-cover" />
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="serif text-[18px] leading-tight text-white line-clamp-2">{candidate.title}</div>
-            <div className="text-[11px] uppercase tracking-wider text-zinc-500 font-medium mt-1">
-              {metaLine}
-              {candidate.metacritic && <span className="ml-2 text-zinc-400">MC {candidate.metacritic}</span>}
-            </div>
-          </div>
-        </div>
-        <div className="p-3 flex flex-col gap-2">
-          <button
-            onClick={onSave}
-            className="w-full rounded-2xl bg-white text-ink-950 py-3 text-[15px] font-medium"
-          >
-            Save for later
-          </button>
-          <button
-            onClick={onDismiss}
-            className="w-full rounded-2xl glass-light text-zinc-200 py-3 text-[15px] font-medium"
-          >
-            Dismiss
-          </button>
-          <button
-            onClick={onClose}
-            className="w-full rounded-2xl text-zinc-500 py-3 text-[14px]"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // Convert a RAWG candidate into a library Game with state='recommended'
 const candidateToGame = (c) => ({
@@ -967,128 +916,6 @@ const LibraryScreen = ({ games, onSelect, section, setSection, enrichStatus, onA
 };
 
 
-// =============================================================================
-// BOTTOM SHEET WRAPPER
-// =============================================================================
-const Sheet = ({ open, onClose, title, leftAction, rightAction, children }) => {
-  // Lock body scroll while open
-  useEffect(() => {
-    if (open) {
-      const prev = document.body.style.overflow;
-      document.body.style.overflow = 'hidden';
-      return () => { document.body.style.overflow = prev; };
-    }
-  }, [open]);
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative mt-auto bg-ink-950 rounded-t-3xl border-t border-white/10 max-w-md mx-auto w-full flex flex-col" style={{ height: '92vh' }}>
-        {/* Drag handle */}
-        <div className="flex justify-center pt-2 pb-1">
-          <div className="w-9 h-1 rounded-full bg-white/15" />
-        </div>
-        <div className="flex items-center justify-between px-4 pt-2 pb-3 border-b border-white/5">
-          <div className="w-16">{leftAction}</div>
-          <div className="serif text-[18px] text-white">{title}</div>
-          <div className="w-16 flex justify-end">{rightAction}</div>
-        </div>
-        <div className="flex-1 overflow-y-auto overscroll-contain">{children}</div>
-      </div>
-    </div>
-  );
-};
-
-
-// =============================================================================
-// ADD GAME SHEET
-// =============================================================================
-const AddGameSheet = ({ open, onClose, onAdd, existingIds }) => {
-  const [step, setStep] = useState('search');
-  const [form, setForm] = useState(blankForm);
-
-  useEffect(() => {
-    if (open) { setStep('search'); setForm(blankForm()); }
-  }, [open]);
-
-  const pick = (r) => {
-    setForm(formFromRawg(r));
-    setStep('form');
-  };
-  const skipToManual = () => {
-    setForm({ ...blankForm(), state: 'rumored' });
-    setStep('form');
-  };
-
-  const handleSave = () => {
-    if (!form.title.trim()) return;
-    const newGame = formToGame(form);
-    // Avoid id collision
-    if (existingIds.has(newGame.id)) newGame.id = newGame.id + '-' + Math.random().toString(36).slice(2, 5);
-    onAdd(newGame);
-    onClose();
-  };
-
-  return (
-    <Sheet
-      open={open}
-      onClose={onClose}
-      title={step === 'search' ? 'Add a game' : 'New game'}
-      leftAction={
-        <button onClick={step === 'form' ? () => setStep('search') : onClose} className="text-zinc-400 text-[14px]">
-          {step === 'form' ? 'Back' : 'Cancel'}
-        </button>
-      }
-      rightAction={step === 'form' && (
-        <button onClick={handleSave} className="text-[14px] font-semibold" style={{ color: '#d4a574' }}>
-          Save
-        </button>
-      )}
-    >
-      {step === 'search'
-        ? <RawgSearch onPick={pick} onSkip={skipToManual} />
-        : <GameForm form={form} setForm={setForm} />}
-    </Sheet>
-  );
-};
-
-// =============================================================================
-// EDIT GAME SHEET
-// =============================================================================
-const EditGameSheet = ({ open, game, onClose, onSave, onDelete }) => {
-  const [form, setForm] = useState(blankForm);
-  useEffect(() => {
-    if (open && game) setForm(formFromGame(game));
-  }, [open, game]);
-
-  const handleSave = () => {
-    if (!form.title.trim()) return;
-    onSave(formToGame(form, game.id));
-    onClose();
-  };
-  const handleDelete = () => {
-    if (window.confirm(`Delete "${game.title}"? This cannot be undone.`)) {
-      onDelete(game.id);
-      onClose();
-    }
-  };
-
-  return (
-    <Sheet
-      open={open}
-      onClose={onClose}
-      title="Edit game"
-      leftAction={<button onClick={onClose} className="text-zinc-400 text-[14px]">Cancel</button>}
-      rightAction={
-        <button onClick={handleSave} className="text-[14px] font-semibold" style={{ color: '#d4a574' }}>
-          Save
-        </button>
-      }
-    >
-      <GameForm form={form} setForm={setForm} onDelete={handleDelete} />
-    </Sheet>
-  );
-};
 
 // =============================================================================
 // BACKUP & DATA SHEET — single entry point for export / import (and Gist sync
@@ -1624,7 +1451,7 @@ const loadRead = () => {
 const saveRead = (set) => {
   try { localStorage.setItem(READ_KEY, JSON.stringify([...set])); } catch {}
 };
-const articleKey = (article) => article?.id || article?.url || '';
+
 
 // React hook: returns { news, loading, error, refresh, lastFetched }
 // Loading is initialized to true when there's no cache OR the cache is older
@@ -1738,60 +1565,6 @@ const EventBanner = ({ event, onDismiss }) => {
         </button>
       </div>
     </div>
-  );
-};
-
-// =============================================================================
-// PODCAST EPISODE LIST SHEET — shows the back catalog with titles + dates
-// =============================================================================
-const PodcastListSheet = ({ open, pod, onClose, onPlay }) => {
-  if (!open || !pod) return null;
-  return (
-    <Sheet
-      open={open}
-      onClose={onClose}
-      title={pod.show}
-      leftAction={<button onClick={onClose} className="text-zinc-400 text-[14px]">Close</button>}
-    >
-      <div className="px-4 pt-4 pb-8">
-        {/* Hero strip */}
-        <div className="rounded-2xl overflow-hidden grain h-24 flex items-end p-4 mb-4" style={{ background: pod.coverGradient }}>
-          <div className="text-3xl drop-shadow-lg">🎙️</div>
-        </div>
-
-        <div className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 font-medium mb-3">
-          Recent episodes
-        </div>
-
-        <div className="space-y-2.5">
-          {pod.episodes.map(ep => {
-            const pulse = freshnessPulse(ep.date);
-            const fresh = freshnessLabel(ep.date);
-            return (
-              <div key={ep.date} className="glass rounded-2xl p-3.5">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: pulse }} />
-                  <div className="text-[10px] uppercase tracking-[0.18em] font-medium" style={{ color: pulse }}>
-                    {fresh}
-                  </div>
-                  <span className="text-[10px] text-zinc-500 ml-auto tabular-nums">{shortDate(ep.date)} · {ep.duration}</span>
-                </div>
-                <div className="serif text-[15px] text-white leading-snug">{ep.title}</div>
-                <div className="flex items-center gap-2 mt-2.5">
-                  <button
-                    onClick={() => onPlay(pod, ep)}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white text-ink-950 text-[11px] font-semibold"
-                  >
-                    <Icon name="play" className="w-3 h-3" filled />
-                    Play
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </Sheet>
   );
 };
 
@@ -2256,140 +2029,6 @@ const NewsFilters = ({ active, onChange }) => (
     })}
   </div>
 );
-
-// =============================================================================
-// ARTICLE READER SHEET — fetches the full article body via the worker.
-// (Podcast playback is handled by PodcastPlayer; this sheet is articles only.)
-// =============================================================================
-const ReaderSheet = ({ open, item, onClose, onMarkRead }) => {
-  const [article, setArticle] = useState(null);
-  const [loadingArticle, setLoadingArticle] = useState(false);
-  const [articleError, setArticleError] = useState(null);
-  const [imageFailed, setImageFailed] = useState(false);
-
-  useEffect(() => {
-    if (!open || !item?.url) return;
-    setLoadingArticle(true);
-    setArticle(null);
-    setArticleError(null);
-    setImageFailed(false);
-    fetchArticle(item.url)
-      .then((data) => {
-        if (data.error) throw new Error(data.error);
-        setArticle(data);
-      })
-      .catch((e) => setArticleError(e.message || String(e)))
-      .finally(() => setLoadingArticle(false));
-  }, [open, item]);
-
-  if (!open || !item) return null;
-  const sourceColor = SOURCE_COLORS[item.source] || '#a1a1aa';
-  const hero = article?.heroImage || item.coverImage;
-  const showHero = hero && !imageFailed;
-
-  return (
-    <Sheet
-      open={open}
-      onClose={onClose}
-      title="Article"
-      leftAction={<button onClick={onClose} className="text-zinc-400 text-[14px]">Close</button>}
-      rightAction={
-        <button
-          onClick={() => { onMarkRead?.(articleKey(item)); onClose(); }}
-          className="text-[14px] font-semibold"
-          style={{ color: '#d4a574' }}
-        >
-          Mark read
-        </button>
-      }
-    >
-      <div className="px-4 py-6">
-        {showHero ? (
-          <div className="rounded-2xl overflow-hidden mb-4 aspect-[16/9]" style={{ background: '#0a0a0c' }}>
-            <img
-              src={hero}
-              alt=""
-              className="w-full h-full object-cover"
-              onError={() => setImageFailed(true)}
-            />
-          </div>
-        ) : (
-          <div className="rounded-2xl overflow-hidden mb-4 aspect-[16/9] flex items-center justify-center text-6xl"
-               style={{ background: `${sourceColor}26` }}>
-            🎮
-          </div>
-        )}
-        <div className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: sourceColor }}>
-          {item.source} · {timeAgo(item.publishedAt)}
-        </div>
-        <h2 className="serif text-[26px] leading-tight text-white mt-2">{item.title}</h2>
-        {article?.byline && (
-          <div className="text-[12px] text-zinc-500 mt-2">By {article.byline}</div>
-        )}
-
-        {loadingArticle && (
-          <div className="mt-6 space-y-3 animate-pulse">
-            <div className="h-3 w-full bg-white/5 rounded" />
-            <div className="h-3 w-11/12 bg-white/5 rounded" />
-            <div className="h-3 w-10/12 bg-white/5 rounded" />
-            <div className="h-3 w-9/12 bg-white/5 rounded" />
-          </div>
-        )}
-
-        {articleError && (
-          <div className="mt-6 glass rounded-2xl p-4">
-            <p className="text-sm text-zinc-400 leading-relaxed">
-              Couldn't load the article body. Here's the excerpt:
-            </p>
-            <p className="text-zinc-300 mt-3 leading-relaxed">{item.excerpt}</p>
-            <a
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-4 inline-block text-[13px] font-semibold"
-              style={{ color: '#d4a574' }}
-            >
-              Read on {item.source} →
-            </a>
-          </div>
-        )}
-
-        {article?.content && (
-          <div
-            className="article-body mt-5"
-            dangerouslySetInnerHTML={{ __html: article.content }}
-          />
-        )}
-
-        {article && !article.content && !loadingArticle && !articleError && (
-          <div className="mt-6 glass rounded-2xl p-4">
-            <p className="text-zinc-300 leading-relaxed">{item.excerpt}</p>
-            <a
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-4 inline-block text-[13px] font-semibold"
-              style={{ color: '#d4a574' }}
-            >
-              Read full article on {item.source} →
-            </a>
-          </div>
-        )}
-
-        {article?.content && (
-          <a
-            href={item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-8 inline-block text-[12px] text-zinc-500 hover:text-zinc-300"
-          >
-            View original on {item.source} →
-          </a>
-        )}
-      </div>
-    </Sheet>
-  );
-};
 
 // =============================================================================
 // NEWS SCREEN
