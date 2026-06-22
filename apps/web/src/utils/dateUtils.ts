@@ -40,7 +40,7 @@ export function parseExpected(s: string | null | undefined): ExpectedDate {
   // "Month DD, YYYY" / "Month DDth, YYYY" / "Mon DD YYYY"
   const mdyName = /^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/.exec(s);
   if (mdyName?.[1] && mdyName[2] && mdyName[3]) {
-    const m = MONTH_TO_NUM[mdyName[1].toLowerCase() as keyof typeof MONTH_TO_NUM];
+    const m = MONTH_TO_NUM[mdyName[1].toLowerCase()];
     if (m) {
       const d = parseInt(mdyName[2], 10);
       const y = parseInt(mdyName[3], 10);
@@ -53,11 +53,11 @@ export function parseExpected(s: string | null | undefined): ExpectedDate {
   if (monthOrSeason?.[1] && monthOrSeason[2]) {
     const word = monthOrSeason[1].toLowerCase();
     const y = parseInt(monthOrSeason[2], 10);
-    const monthNum = MONTH_TO_NUM[word as keyof typeof MONTH_TO_NUM];
+    const monthNum = MONTH_TO_NUM[word];
     if (monthNum != null) {
       return { sortKey: y * 10000 + monthNum * 100, label: s };
     }
-    const seasonOffset = SEASON_OFFSETS[word as keyof typeof SEASON_OFFSETS];
+    const seasonOffset = SEASON_OFFSETS[word];
     if (seasonOffset != null) {
       return { sortKey: y * 10000 + seasonOffset, label: s };
     }

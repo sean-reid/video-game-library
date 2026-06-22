@@ -30,7 +30,7 @@ export function PredictivenessRadar({
   const radius = size * 0.32;
   const labelR = radius + size * 0.085;
   const N = CATEGORIES.length;
-  const values = CATEGORIES.map((c) => predictiveness[c.key as RatingCategory]);
+  const values = CATEGORIES.map((c) => predictiveness[c.key]);
   const maxLift = Math.max(0.01, ...values);
 
   const point = (i: number, norm: number): [number, number] => {
@@ -40,7 +40,7 @@ export function PredictivenessRadar({
   };
 
   const pts = CATEGORIES.map((c, i) => {
-    const lift = predictiveness[c.key as RatingCategory];
+    const lift = predictiveness[c.key];
     const norm = Math.max(0, lift / maxLift) * 10;
     return point(i, norm);
   });
@@ -95,7 +95,7 @@ export function PredictivenessRadar({
         const ly = cy + Math.sin(angle) * labelR;
         const anchor =
           Math.abs(Math.cos(angle)) < 0.3 ? 'middle' : Math.cos(angle) > 0 ? 'start' : 'end';
-        const lift = predictiveness[c.key as RatingCategory];
+        const lift = predictiveness[c.key];
         const liftLabel = lift > 0 ? `+${lift.toFixed(1)}` : lift.toFixed(1);
         return (
           <g key={c.key}>

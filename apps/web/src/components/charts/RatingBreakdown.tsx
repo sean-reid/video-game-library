@@ -1,5 +1,5 @@
 import { CATEGORIES } from '../../data/constants.js';
-import type { Rating, RatingCategory } from '../../types/index.js';
+import type { Rating } from '../../types/index.js';
 
 interface RatingBreakdownProps {
   rating: Rating;
@@ -10,7 +10,7 @@ export function RatingBreakdown({ rating, color }: RatingBreakdownProps) {
   return (
     <div className="space-y-2.5">
       {CATEGORIES.map((c) => {
-        const v = rating[c.key as RatingCategory];
+        const v = rating[c.key];
         return (
           <div key={c.key} className="flex items-center gap-3">
             <div className="text-[12px] uppercase tracking-wider text-zinc-400 w-20 shrink-0 font-medium">

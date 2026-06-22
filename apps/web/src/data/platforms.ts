@@ -1,6 +1,8 @@
+export type GradientStop = readonly [string, string];
+
 // Generative gradient palettes per platform. Two-stop gradients chosen so
 // that a game without cover art still feels platform-coded at a glance.
-export const PLATFORM_PALETTES = {
+export const PLATFORM_PALETTES: Record<string, GradientStop[]> = {
   PS5: [
     ['#1e3a8a', '#312e81'],
     ['#1e40af', '#0f172a'],
@@ -45,14 +47,14 @@ export const PLATFORM_PALETTES = {
   ],
 };
 
-export const DEFAULT_PALETTE = [
+export const DEFAULT_PALETTE: GradientStop[] = [
   ['#27272a', '#09090b'],
   ['#3f3f46', '#18181b'],
 ];
 
 // Manual cover overrides for games RAWG mis-matched or that need a better
 // image. Applied at READ time, so no re-enrichment of localStorage is required.
-export const COVER_OVERRIDES = {
+export const COVER_OVERRIDES: Record<string, { coverImage: string }> = {
   'spider-man-miles-morales-2020': {
     coverImage: 'https://media.rawg.io/media/games/048/048b46cdc66cbc7e235e1f359c2a77ec.jpg',
   },
@@ -85,7 +87,7 @@ export const COVER_OVERRIDES = {
 };
 
 // RAWG platform IDs (from /platforms). Only the ones we care about.
-export const RAWG_PLATFORM_IDS = {
+export const RAWG_PLATFORM_IDS: Record<string, number> = {
   PS5: 187,
   PS4: 18,
   PS3: 16,
@@ -116,7 +118,7 @@ export const RAWG_PLATFORM_IDS = {
 };
 
 // Verbose RAWG platform names → the short codes the user types.
-export const PLATFORM_SHORT = {
+export const PLATFORM_SHORT: Record<string, string> = {
   'PlayStation 5': 'PS5',
   'PlayStation 4': 'PS4',
   'PlayStation 3': 'PS3',
@@ -151,7 +153,7 @@ export const PLATFORM_SHORT = {
 
 // Preference order when RAWG returns a multi-platform game.
 // Biases toward modern consoles — matches an AAA/first-party gaming profile.
-export const PLATFORM_PRIORITY = [
+export const PLATFORM_PRIORITY: readonly string[] = [
   'PlayStation 5',
   'Nintendo Switch 2',
   'PlayStation 4',

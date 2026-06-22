@@ -1,7 +1,7 @@
 import { CATEGORIES } from '../../data/constants.js';
 import type { RawgSearchHit } from '../../services/rawgApi.js';
 import { yearOf } from '../../services/rawgApi.js';
-import type { Completion, Game, Rating, RatingCategory } from '../../types/index.js';
+import type { Completion, Game, Rating } from '../../types/index.js';
 
 // In-flight form shape — narrows the persisted Game with form-friendly
 // strings for fields that the user types as text (year, topListRank,
@@ -42,7 +42,7 @@ export function blankRating(): Rating {
 }
 
 export function ratingTotal(r: Rating): number {
-  return CATEGORIES.reduce((s, c) => s + (r[c.key as RatingCategory] || 0), 0);
+  return CATEGORIES.reduce((s, c) => s + (r[c.key] || 0), 0);
 }
 
 export function blankForm(): GameFormState {

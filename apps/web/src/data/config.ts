@@ -11,8 +11,9 @@ export const NEWS_CACHE_KEY = 'vgl.news.v2';
 // build time so dev builds can hit the dev worker without code changes.
 // Falls back to the live production worker that ships with the codeowner's
 // repo so a fresh clone Just Works.
-export const WORKER_BASE =
-  import.meta.env.VITE_WORKER_URL ?? 'https://vgl-news.danrstaton.workers.dev';
+export const WORKER_BASE: string =
+  (import.meta.env.VITE_WORKER_URL as string | undefined) ??
+  'https://vgl-news.danrstaton.workers.dev';
 
 // RAWG access. The client-side key here is a known security issue and gets
 // retired in the security-hardening phase when all RAWG calls move through

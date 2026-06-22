@@ -30,7 +30,7 @@ export function TIER(score: number): Tier {
 
 export function gradientFor(game: Pick<Game, 'platform' | 'title'>): string {
   const matched = game.platform
-    ? PLATFORM_PALETTES[game.platform as keyof typeof PLATFORM_PALETTES]
+    ? PLATFORM_PALETTES[game.platform]
     : undefined;
   const palettes = matched ?? DEFAULT_PALETTE;
   const [a, b] = palettes[hash(game.title) % palettes.length] ?? palettes[0]!;
@@ -45,7 +45,7 @@ export function effectiveCover(game: Game): string | null {
 }
 
 export function shortPlatform(name: string): string {
-  return PLATFORM_SHORT[name as keyof typeof PLATFORM_SHORT] ?? name;
+  return PLATFORM_SHORT[name] ?? name;
 }
 
 // Preferred RAWG platform from a multi-platform release. Falls back to the

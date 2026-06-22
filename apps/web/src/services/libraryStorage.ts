@@ -11,7 +11,7 @@ export function loadGames(): Game[] {
   } catch {
     /* corrupted entry */
   }
-  return SEED_GAMES as Game[];
+  return SEED_GAMES;
 }
 
 export function saveGames(games: Game[]): void {

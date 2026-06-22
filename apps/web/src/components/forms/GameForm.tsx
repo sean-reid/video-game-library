@@ -155,9 +155,9 @@ export function GameForm({ form, setForm, onDelete }: GameFormProps) {
                 <RatingSliderRow
                   key={c.key}
                   label={c.label}
-                  value={form.rating?.[c.key as RatingCategory] ?? 0}
+                  value={form.rating?.[c.key] ?? 0}
                   onChange={(v) => {
-                    setRating(c.key as RatingCategory, v);
+                    setRating(c.key, v);
                   }}
                   color={color}
                 />

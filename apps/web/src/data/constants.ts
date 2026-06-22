@@ -1,6 +1,14 @@
+import type { GameState, RatingCategory } from '../types/index.js';
+
+interface CategoryMeta {
+  key: RatingCategory;
+  label: string;
+  full: string;
+}
+
 // Rating rubric — ten weighted categories totaling 100. The order here is
 // the order they render in the breakdown and the spider chart.
-export const CATEGORIES = [
+export const CATEGORIES: CategoryMeta[] = [
   { key: 'narrative', label: 'Narrative', full: 'Narrative / Engagement' },
   { key: 'worldLevel', label: 'World', full: 'World / Level Design' },
   { key: 'gameplay', label: 'Gameplay', full: 'Gameplay Design' },
@@ -14,14 +22,14 @@ export const CATEGORIES = [
 ];
 
 // Tier colors — medal-style: Gold / Silver / Bronze.
-export const TIER_COLOR_FOR_LABEL = {
+export const TIER_COLOR_FOR_LABEL: Record<'Masterpiece' | 'Amazing' | 'Great', string> = {
   Masterpiece: '#e2b878',
   Amazing: '#a8b4c0',
   Great: '#b87349',
 };
 
 // UI metadata per library state.
-export const STATE_META = {
+export const STATE_META: Record<GameState, { label: string; verb: string }> = {
   played: { label: 'Played', verb: 'rated' },
   playing: { label: 'Playing', verb: 'currently playing' },
   upcoming: { label: 'Upcoming', verb: 'release confirmed' },
@@ -29,7 +37,7 @@ export const STATE_META = {
   recommended: { label: 'Recommended', verb: 'on the list' },
 };
 
-export const MONTHS = [
+export const MONTHS: readonly string[] = [
   'Jan',
   'Feb',
   'Mar',
@@ -44,7 +52,7 @@ export const MONTHS = [
   'Dec',
 ];
 
-export const MONTH_TO_NUM = {
+export const MONTH_TO_NUM: Record<string, number> = {
   january: 1,
   jan: 1,
   february: 2,
@@ -73,7 +81,7 @@ export const MONTH_TO_NUM = {
 
 // Approximate day-of-year offsets for season-only release dates like
 // "Summer 2026". Used as a sort key when no specific month is known.
-export const SEASON_OFFSETS = {
+export const SEASON_OFFSETS: Record<string, number> = {
   spring: 300,
   summer: 600,
   fall: 900,

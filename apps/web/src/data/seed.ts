@@ -1,7 +1,9 @@
+import type { Game } from '../types/index.js';
+
 // Seeded library that ships with a fresh install of the app. Loaded into
 // localStorage under vgl.games.v4 the first time the app boots; the
 // user's edits/additions live there from that point on.
-export const SEED_GAMES = [
+export const SEED_GAMES: Game[] = [
   {
     "id": "god-of-war-ragnarok-2022",
     "title": "God of War: Ragnarok",

@@ -1,5 +1,5 @@
 import { CATEGORIES } from '../../data/constants.js';
-import type { Rating, RatingCategory } from '../../types/index.js';
+import type { Rating } from '../../types/index.js';
 
 interface SpiderChartProps {
   rating: Rating;
@@ -22,7 +22,7 @@ export function SpiderChart({ rating, color = '#d4a574', size = 280 }: SpiderCha
     return [cx + Math.cos(angle) * r, cy + Math.sin(angle) * r];
   };
 
-  const dataPoints = CATEGORIES.map((c, i) => point(i, rating[c.key as RatingCategory]));
+  const dataPoints = CATEGORIES.map((c, i) => point(i, rating[c.key]));
   const polyStr = dataPoints.map((p) => p.join(',')).join(' ');
   const rings = [2, 4, 6, 8, 10];
 

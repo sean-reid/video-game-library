@@ -144,7 +144,7 @@ export interface TasteProfile {
 export function scoreCandidate(c: RecCandidate, profile: TasteProfile): number {
   let s = (c.metacritic ?? 0) / 5; // Metacritic is the strongest single signal
   for (const p of c.platforms) {
-    const sp = PLATFORM_SHORT[p as keyof typeof PLATFORM_SHORT] ?? p;
+    const sp = PLATFORM_SHORT[p] ?? p;
     if (profile.platformWeights[sp]) s += profile.platformWeights[sp] / 50;
   }
   for (const g of c.genres) {
@@ -157,7 +157,7 @@ export function scoreCandidate(c: RecCandidate, profile: TasteProfile): number {
 // rather than only Studio X's whole catalogue.
 export async function fetchRecommendations(profile: TasteProfile): Promise<RecCandidate[]> {
   const platformIds = profile.topPlatforms
-    .map((p) => RAWG_PLATFORM_IDS[p as keyof typeof RAWG_PLATFORM_IDS])
+    .map((p) => RAWG_PLATFORM_IDS[p])
     .filter((id): id is number => Boolean(id))
     .join(',');
   const baseParams =

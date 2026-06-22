@@ -1,8 +1,13 @@
+export interface FranchiseRule {
+  match: RegExp;
+  label: string;
+}
+
 // Title-prefix regexes used to bucket library entries into franchises for
 // the Stats screen. Ordered most-specific first so 'Pokémon Stadium' lands
 // in 'Pokémon' before it could ever match a more general rule. Add entries
 // here when the user picks up a new series.
-export const FRANCHISE_RULES = [
+export const FRANCHISE_RULES: FranchiseRule[] = [
   { match: /^pok[eé]mon\b|^pokopia\b|^new pok[eé]mon\b/i, label: 'Pokémon' },
   {
     match: /^(the )?(legend of )?zelda\b|^zelda:|^hyrule warriors\b|^a link to the past\b/i,
