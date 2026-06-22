@@ -1,0 +1,11 @@
+/* Self-hosted Lora + Inter. Weights match what the legacy app pulled from
+   Google Fonts (Lora 400/500/600 + 400 italic, Inter 400/500/600/700) so
+   the rendered text stays visually identical. */
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/lora/400.css';
+@import '@fontsource/lora/500.css';
+@import '@fontsource/lora/600.css';
+@import '@fontsource/lora/400-italic.css';

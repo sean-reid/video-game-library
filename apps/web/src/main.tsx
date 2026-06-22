@@ -1,3 +1,4 @@
+import './styles/fonts.css';
 import './styles/tailwind.css';
 import './styles/globals.css';
 // The legacy app self-mounts via ReactDOM.createRoot and registers the
