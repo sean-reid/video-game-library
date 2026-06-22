@@ -2,7 +2,6 @@ import React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import {
   DISMISSED_KEY,
-  GIST_KEY,
   NEWS_STALE_MS,
   READ_KEY,
   RECS_KEY,
@@ -27,6 +26,15 @@ import {
   RAWG_PLATFORM_IDS,
 } from '../data/platforms.js';
 import { SEED_GAMES } from '../data/seed.js';
+import {
+  GIST_FILENAME,
+  clearGistConfig,
+  createGist,
+  fetchGistLibrary,
+  loadGistConfig,
+  saveGistConfig,
+  updateGist,
+} from '../services/gistApi.ts';
 import {
   fetchRawgDetail,
   fetchRecommendations,
@@ -2315,77 +2323,6 @@ const exportLibrary = (games) => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
-// =============================================================================
-// GITHUB GIST SYNC
-// Your library JSON lives in a private gist on YOUR GitHub account.
-// Token + gist ID live in localStorage; nothing leaves your phone except
-// the writes to your own GitHub.
-// =============================================================================
-const GIST_FILENAME = 'video-game-library.json';
-
-const loadGistConfig = () => {
-  try {
-    const raw = localStorage.getItem(GIST_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return null;
-};
-const saveGistConfig = (config) => {
-  try { localStorage.setItem(GIST_KEY, JSON.stringify(config)); } catch {}
-};
-const clearGistConfig = () => { try { localStorage.removeItem(GIST_KEY); } catch {} };
-
-async function ghRequest(token, path, init = {}) {
-  const res = await fetch(`https://api.github.com${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'Content-Type': 'application/json',
-      ...(init.headers || {}),
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`GitHub ${res.status}: ${text.slice(0, 200) || res.statusText}`);
-  }
-  return res.json();
-}
-
-async function createGist(token, games) {
-  return ghRequest(token, '/gists', {
-    method: 'POST',
-    body: JSON.stringify({
-      description: 'Video Game Library backup',
-      public: false,
-      files: {
-        [GIST_FILENAME]: { content: JSON.stringify(games, null, 2) },
-      },
-    }),
-  });
-}
-
-async function updateGist(token, gistId, games) {
-  return ghRequest(token, `/gists/${gistId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      files: {
-        [GIST_FILENAME]: { content: JSON.stringify(games, null, 2) },
-      },
-    }),
-  });
-}
-
-async function fetchGistLibrary(token, gistId) {
-  const gist = await ghRequest(token, `/gists/${gistId}`);
-  const file = gist.files?.[GIST_FILENAME];
-  if (!file) throw new Error(`No ${GIST_FILENAME} in this gist`);
-  const content = file.truncated ? await (await fetch(file.raw_url)).text() : file.content;
-  const data = JSON.parse(content);
-  if (!Array.isArray(data)) throw new Error('Gist contents are not a valid library array');
-  return data;
-}
 
 const importLibrary = (setGames) => {
   const input = document.createElement('input');
