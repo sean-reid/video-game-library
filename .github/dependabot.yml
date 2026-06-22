@@ -1,0 +1,69 @@
+version: 2
+updates:
+  # Root npm workspace (pnpm-lock.yaml covers both apps/web and apps/worker).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    groups:
+      # Bundle ecosystem-coupled deps so we get one PR instead of N for each
+      # weekly drift. Security advisories still fire individually.
+      typescript:
+        patterns:
+          - typescript
+          - typescript-eslint
+          - '@typescript-eslint/*'
+      eslint:
+        patterns:
+          - eslint
+          - eslint-*
+          - '@eslint/*'
+      react:
+        patterns:
+          - react
+          - react-dom
+          - '@types/react'
+          - '@types/react-dom'
+      vite:
+        patterns:
+          - vite
+          - '@vitejs/*'
+          - vitest
+          - vite-plugin-*
+      playwright:
+        patterns:
+          - playwright
+          - '@playwright/test'
+      cloudflare:
+        patterns:
+          - wrangler
+          - '@cloudflare/*'
+          - workbox-*
+      tailwind:
+        patterns:
+          - tailwindcss
+          - '@tailwindcss/*'
+          - postcss
+          - autoprefixer
+    labels:
+      - dependencies
+    commit-message:
+      prefix: deps
+      include: scope
+
+  # Pin updates for the actions themselves (uses: ... pinned by version).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: ci
+      include: scope
