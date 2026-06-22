@@ -11,96 +11,24 @@
 //   GET /news?nocache=1 — force a fresh fetch (skip edge cache)
 // =============================================================================
 
-export interface Env {
-  RAWG_API_KEY: string;
-  DEBUG?: string;
-}
+import type { Env } from './env';
+import type {
+  ArticleResponse,
+  AtomEntry,
+  Category,
+  EventItem,
+  EventType,
+  Headline,
+  NewsBundle,
+  PodcastBundle,
+  PodcastSource,
+  Platform,
+  RSSItem,
+  RSSSource,
+  WikipediaEventSource,
+} from './types';
 
-type Platform = 'nintendo' | 'playstation' | 'xbox' | 'multi';
-type Category = 'review' | 'upcoming' | 'hardware' | 'company' | 'news';
-type EventType = 'nintendo' | 'playstation';
-
-interface RSSItem {
-  id: string;
-  title: string;
-  url: string;
-  excerpt: string;
-  publishedAt: string;
-  coverImage: string | null;
-}
-
-interface Headline extends RSSItem {
-  source: string;
-  platforms: Platform[];
-  category: Category;
-}
-
-interface AtomEntry {
-  id: string;
-  title: string;
-  description: string;
-  url: string;
-  publishedAt: string;
-}
-
-interface PodcastEpisode {
-  title: string;
-  date: string;
-  duration: string;
-  youtubeUrl: string;
-  spotifyUrl: string;
-  description: string;
-}
-
-interface PodcastDebug {
-  channelId: string;
-  patterns?: string[];
-  totalVideos?: number;
-  matchedCount?: number;
-  recentVideoTitles?: string[];
-}
-
-interface PodcastBundle {
-  id: string;
-  show: string;
-  accent: string;
-  coverGradient: string;
-  youtubeUrl: string;
-  spotifyUrl: string;
-  episodes: PodcastEpisode[];
-  error?: string;
-  _debug?: PodcastDebug;
-}
-
-interface EventItem {
-  id: string;
-  type: EventType;
-  title: string;
-  date: string;
-  time: string;
-  accent: string;
-  _source: 'wikipedia' | 'headlines';
-  _from?: string;
-  _matchedTitle?: string;
-}
-
-interface NewsBundle {
-  fetchedAt: string;
-  headlines: Headline[];
-  podcasts: PodcastBundle[];
-  events: EventItem[];
-}
-
-interface ArticleResponse {
-  title: string;
-  byline: string | null;
-  publishedAt: string | null;
-  heroImage: string | null;
-  siteName: string;
-  description: string | null;
-  content: string;
-  sourceUrl: string;
-}
+export type { Env };
 
 const CACHE_TTL_SECONDS = 30 * 60; // 30 min
 const PER_SOURCE_TIMEOUT_MS = 5000;
@@ -116,12 +44,6 @@ const PODCAST_EPISODES = 8;
 // `dedicated: false` means we require a gaming keyword in the article before
 // accepting it (Engadget covers all consumer tech, Polygon covers movies/TV,
 // etc.)
-interface RSSSource {
-  source: string;
-  url: string;
-  dedicated: boolean;
-}
-
 const RSS_SOURCES: RSSSource[] = [
   { source: 'Nintendo Life', url: 'https://www.nintendolife.com/feeds/news', dedicated: true },
   { source: 'PlayStation Blog', url: 'https://blog.playstation.com/feed/', dedicated: true },
@@ -137,17 +59,6 @@ const RSS_SOURCES: RSSSource[] = [
 // by scraping the channel page once per cache window.
 // titlePatterns is a pipe-separated list of case-insensitive substrings;
 // any one match against the video title OR description keeps the episode.
-interface PodcastSource {
-  id: string;
-  show: string;
-  youtubeHandle: string;
-  titlePatterns: string;
-  accent: string;
-  coverGradient: string;
-  youtubeUrl: string;
-  spotifyUrl: string;
-}
-
 const PODCAST_SOURCES: PodcastSource[] = [
   {
     id: 'kinda-funny-games-daily',
@@ -191,13 +102,6 @@ const NON_GAMING_TITLE_RE =
 // to be kept at all.
 const GAMING_SIGNALS_RE =
   /\b(?:video\s*games?|gameplay|gamer|gaming|playstation|ps[1-9]\b|xbox|nintendo|switch\s*2?\b|steam\s*deck|steam\b|game\s*pass|dlc|expansion\s+(?:pack|game)|console\b|esports?|speedrun|emulat|controller|gamepad|joy[- ]?con|dualsense|game\s+(?:launch|reveal|release|review|trailer|preview|update|patch|delay|announced|drops?|hits?|coming|of\s+the\s+year)|launch\s+title|exclusive\s+(?:game|title)|RPG\b|FPS\b|MMO\b|battle\s+royale|metroidvania|roguelike|soulslike|Pokémon|Pokemon|Mario|Zelda|Sonic|Final\s+Fantasy|Grand\s+Theft\s+Auto|GTA\s*VI?|Call\s+of\s+Duty|Hogwarts\s+Legacy|Spider-?Man\s+2?|Last\s+of\s+Us|God\s+of\s+War|Ghost\s+of\s+(?:Tsushima|Yotei|Yōtei)|Metroid|Splatoon|Halo|Forza|Hollow\s+Knight|Silksong|Marvel'?s\s+\w+|Star\s+Wars\s+(?:Jedi|Outlaws|Galactic)|Tomb\s+Raider|Clair\s+Obscur|Death\s+Stranding|Mixtape|Pokopia|Activision|Ubisoft|Bethesda|Capcom|Konami|Sega|Square\s+Enix|Bandai\s+Namco|FromSoftware|Insomniac|Naughty\s+Dog|Game\s+Freak|Bungie|Riot\s+Games|Valve\b|Epic\s+Games|Annapurna|Rockstar|Sony\s+Interactive)\b/i;
-
-interface WikipediaEventSource {
-  type: EventType;
-  title: string;
-  url: string;
-  accent: string;
-}
 
 const WIKIPEDIA_EVENT_SOURCES: WikipediaEventSource[] = [
   {
