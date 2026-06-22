@@ -1,0 +1,11 @@
+# Copy to .dev.vars (gitignored) and fill in the values before running
+# `pnpm --filter @vgl/worker dev`. .dev.vars is what wrangler reads for
+# local development; the actual prod values live in `wrangler secret`.
+
+# RAWG API key. Get one at https://rawg.io/apidocs.
+RAWG_API_KEY=your-rawg-key-here
+
+# Optional. Comma-separated list of web origins allowed to call this worker.
+# Without it, dev (DEBUG=true) returns the Pages origins + localhost; prod
+# returns only the Pages origins. Override here for one-off tests.
+# ALLOWED_ORIGINS=http://localhost:5173,https://your.example.com
