@@ -18,6 +18,7 @@ import { BackupSheet } from '../components/sheets/BackupSheet.tsx';
 import { GameDetailScreen, buildNavOrder } from '../components/screens/GameDetailScreen.tsx';
 import { LibraryScreen } from '../components/screens/LibraryScreen.tsx';
 import { NewsScreen } from '../components/screens/NewsScreen.tsx';
+import { StatsScreen } from '../components/screens/StatsScreen.tsx';
 import { PlayedView } from '../components/views/PlayedView.tsx';
 import { PlayingView } from '../components/views/PlayingView.tsx';
 import { RecommendedView } from '../components/views/RecommendedView.tsx';
@@ -45,14 +46,6 @@ import { TextInput } from '../components/forms/inputs/TextInput.tsx';
 import { Toggle } from '../components/forms/inputs/Toggle.tsx';
 import { HeadlineCard, SOURCE_COLORS } from '../components/cards/HeadlineCard.tsx';
 import { PodcastCard } from '../components/cards/PodcastCard.tsx';
-import { CompletionBars } from '../components/charts/CompletionBars.tsx';
-import { PredictivenessRadar } from '../components/charts/PredictivenessRadar.tsx';
-import { RatingBreakdown } from '../components/charts/RatingBreakdown.tsx';
-import { SectionCard } from '../components/charts/SectionCard.tsx';
-import { SpiderChart } from '../components/charts/SpiderChart.tsx';
-import { StatTile } from '../components/charts/StatTile.tsx';
-import { TIER_BAND_COLORS, TIER_BAND_LABEL, TierLegend, TierStackedBar } from '../components/charts/TierStackedBar.tsx';
-import { TopFranchises } from '../components/charts/TopFranchises.tsx';
 import { EmptyState } from '../components/common/EmptyState.tsx';
 import { ErrorBoundary } from '../components/common/ErrorBoundary.tsx';
 import { Icon } from '../components/common/Icon.tsx';
@@ -80,12 +73,6 @@ import {
   primaryYear,
   shortPlatform,
 } from '../utils/gameHelpers.ts';
-import {
-  TIER_BAND_ORDER,
-  computeStats,
-  franchiseOf,
-  tierOfGame,
-} from '../utils/stats.ts';
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -605,64 +592,6 @@ const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
         </div>
       )}
     </>
-  );
-};
-
-// STATS SCREEN — pure local computation across the user's library.
-// All charts are hand-rolled SVG (no external lib) to keep the bundle clean.
-// =============================================================================
-const StatsScreen = ({ games, tab, onTabChange }) => {
-  const stats = useMemo(() => computeStats(games), [games]);
-
-  return (
-    <div className="screen-enter pt-safe pb-32">
-      <div className="px-4 pt-5 pb-1">
-        <TitleNav active={tab} onChange={onTabChange} />
-      </div>
-
-      {/* Hero numbers */}
-      <div className="px-4 mt-5 grid grid-cols-2 gap-3">
-        <StatTile label="Played" value={stats.totalPlayed} sub={stats.totalRated > 0 ? `${stats.totalRated} rated` : null} />
-        <StatTile label="Lifetime hours" value={stats.totalHours > 0 ? stats.totalHours.toLocaleString() : '—'} sub={stats.totalHours > 0 ? 'from RAWG' : 'no data yet'} />
-      </div>
-
-      {/* Score vs. release year — stacked bars per year */}
-      <SectionCard title="Score vs. release year" subtitle="Tier breakdown of played games released 2017+">
-        <TierLegend />
-        <TierStackedBar rows={stats.byYearTiers} labelWidth="3rem" />
-      </SectionCard>
-
-      {/* Score vs. system — stacked bars per platform */}
-      <SectionCard title="Score vs. system" subtitle="Tier breakdown of played games by platform">
-        <TierLegend />
-        <TierStackedBar rows={stats.byPlatformTiers} labelWidth="5rem" />
-      </SectionCard>
-
-      {/* Top franchises — series with 2+ games, sortable by count or score */}
-      <SectionCard title="Top franchises" subtitle="Series with 2 or more games in your library">
-        <TopFranchises rows={stats.topFranchises} />
-      </SectionCard>
-
-      {/* What you value — predictiveness spider */}
-      <SectionCard title="What you value" subtitle="Categories that distinguish Masterpieces from other Top 50 games">
-        <PredictivenessRadar
-          predictiveness={stats.predictiveness}
-          masterpiecesCount={stats.masterpiecesCount}
-          otherCount={stats.otherTop50Count}
-        />
-      </SectionCard>
-
-      {/* Completion */}
-      <SectionCard title="Completion" subtitle={`${stats.totalRated} rated games`}>
-        <CompletionBars completion={stats.completion} totalRated={stats.totalRated} />
-      </SectionCard>
-
-      {stats.totalPlayed === 0 && (
-        <div className="mx-4 mt-6 glass rounded-2xl p-6 text-center text-zinc-400 text-sm">
-          Rate some games to start filling your Stats page.
-        </div>
-      )}
-    </div>
   );
 };
 
