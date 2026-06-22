@@ -1,9 +1,20 @@
-import { ARTICLE_CACHE_TTL_SECONDS, CACHE_TTL_SECONDS } from './config';
+import { ARTICLE_ALLOWED_HOSTS, ARTICLE_CACHE_TTL_SECONDS, CACHE_TTL_SECONDS } from './config';
 import type { Env } from './env';
 import { buildNewsBundle } from './news-bundle';
 import { parseArticle } from './parsers/article';
 import { fetchText } from './utils/fetch';
 import { jsonResponse } from './utils/http';
+
+export function isAllowedArticleUrl(rawUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+  return ARTICLE_ALLOWED_HOSTS.includes(parsed.hostname);
+}
 
 export async function getNews(
   env: Env,
@@ -33,6 +44,9 @@ export async function getArticleCached(
   articleUrl: string,
   ctx: ExecutionContext,
 ): Promise<Response> {
+  if (!isAllowedArticleUrl(articleUrl)) {
+    return jsonResponse({ error: 'URL not allowed', sourceUrl: articleUrl }, { status: 400 });
+  }
   const cache = caches.default;
   const cacheKey = new Request(
     `https://cache.vgl/article-v1?url=${encodeURIComponent(articleUrl)}`,
@@ -48,6 +62,6 @@ export async function getArticleCached(
     ctx.waitUntil(cache.put(cacheKey, response.clone()));
     return response;
   } catch (e) {
-    return jsonResponse({ error: String(e), sourceUrl: articleUrl });
+    return jsonResponse({ error: String(e), sourceUrl: articleUrl }, { status: 502 });
   }
 }

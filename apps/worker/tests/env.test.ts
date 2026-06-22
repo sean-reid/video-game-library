@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isDebug } from '../src/env';
+import { allowedOrigins, isDebug } from '../src/env';
 
 describe('isDebug', () => {
   it('is true when DEBUG is exactly "true"', () => {
@@ -17,5 +17,25 @@ describe('isDebug', () => {
   it('does not treat truthy non-"true" strings as debug', () => {
     expect(isDebug({ RAWG_API_KEY: 'x', DEBUG: '1' })).toBe(false);
     expect(isDebug({ RAWG_API_KEY: 'x', DEBUG: 'yes' })).toBe(false);
+  });
+});
+
+describe('allowedOrigins', () => {
+  it('returns the built-in defaults when ALLOWED_ORIGINS is unset', () => {
+    const origins = allowedOrigins({ RAWG_API_KEY: 'x' });
+    expect(origins).toContain('https://danrstaton.github.io');
+    expect(origins).toContain('http://localhost:5173');
+  });
+
+  it('parses a comma-separated env var into trimmed origins', () => {
+    expect(
+      allowedOrigins({ RAWG_API_KEY: 'x', ALLOWED_ORIGINS: 'https://a, https://b ,  https://c' }),
+    ).toEqual(['https://a', 'https://b', 'https://c']);
+  });
+
+  it('drops empty entries from the env var', () => {
+    expect(allowedOrigins({ RAWG_API_KEY: 'x', ALLOWED_ORIGINS: 'https://a,,  ,' })).toEqual([
+      'https://a',
+    ]);
   });
 });

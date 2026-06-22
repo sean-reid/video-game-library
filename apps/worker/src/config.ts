@@ -9,6 +9,27 @@ export const ARTICLE_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 export const RAWG_BASE = 'https://api.rawg.io/api';
 export const RAWG_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
+// Hosts the /article endpoint is willing to fetch. Sourced from RSS_SOURCES
+// plus the article-host variants (some feeds live on a `feeds.` subdomain but
+// the articles themselves redirect to a different host).
+export const ARTICLE_ALLOWED_HOSTS: readonly string[] = [
+  'nintendolife.com',
+  'www.nintendolife.com',
+  'blog.playstation.com',
+  'polygon.com',
+  'www.polygon.com',
+  'ign.com',
+  'www.ign.com',
+  'engadget.com',
+  'www.engadget.com',
+  'pushsquare.com',
+  'www.pushsquare.com',
+  'gamesradar.com',
+  'www.gamesradar.com',
+  'vice.com',
+  'www.vice.com',
+];
+
 // `dedicated: true` means the feed is gaming-only — we trust it.
 // `dedicated: false` means we require a gaming keyword in the article before
 // accepting it (Engadget covers all consumer tech, Polygon covers movies/TV,
