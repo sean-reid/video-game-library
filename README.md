@@ -83,4 +83,6 @@ ships. Manual steps for the initial cutover (codeowner only):
 After that every merge to `main` redeploys both halves.
 
 See [`apps/web/README.md`](apps/web/README.md) and [`apps/worker/README.md`](apps/worker/README.md)
-for app-specific details.
+for app-specific details, and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the
+component / service / hook layout, security boundaries, and how to add a
+new screen or sheet.
