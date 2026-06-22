@@ -7,7 +7,7 @@
     "dev": "wrangler dev --env dev",
     "deploy:dev": "wrangler deploy --env dev",
     "deploy:prod": "wrangler deploy --env prod",
-    "lint": "eslint src",
+    "lint": "eslint src tests",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
