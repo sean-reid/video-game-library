@@ -7,21 +7,21 @@ never reaches the client.
 
 ## Endpoints
 
-| Path | Purpose |
-| --- | --- |
-| `GET /news` | Aggregated news bundle (headlines + podcasts + events). 5-minute edge cache. |
+| Path                   | Purpose                                                                                                                          |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /news`            | Aggregated news bundle (headlines + podcasts + events). 5-minute edge cache.                                                     |
 | `GET /article?url=...` | Parsed article body. URL must match `ARTICLE_ALLOWED_HOSTS`; redirects are re-validated against the same allowlist (SSRF guard). |
-| `GET /rawg/*` | Server-keyed RAWG proxy. Paths and query params allowlisted. |
-| `OPTIONS /*` | CORS preflight. |
+| `GET /rawg/*`          | Server-keyed RAWG proxy. Paths and query params allowlisted.                                                                     |
+| `OPTIONS /*`           | CORS preflight.                                                                                                                  |
 
 ## Environments
 
 Two Wrangler environments, one per Cloudflare account:
 
-| Env | URL pattern | Account |
-| --- | --- | --- |
-| `dev` | `https://vgl-news-dev.<account>.workers.dev` | Your dev account |
-| `prod` | `https://vgl-news.<codeowner>.workers.dev` | Codeowner |
+| Env    | URL pattern                                  | Account          |
+| ------ | -------------------------------------------- | ---------------- |
+| `dev`  | `https://vgl-news-dev.<account>.workers.dev` | Your dev account |
+| `prod` | `https://vgl-news.<codeowner>.workers.dev`   | Codeowner        |
 
 Override CORS origins with `ALLOWED_ORIGINS` (comma-separated). When unset
 the dev env (`DEBUG=true`) returns the Pages origins + localhost; prod
