@@ -10,10 +10,18 @@ export const NEWS_CACHE_KEY = 'vgl.news.v2';
 // External endpoints. WORKER_BASE is overridable via VITE_WORKER_URL at
 // build time so dev builds can hit the dev worker without code changes.
 // Falls back to the live production worker that ships with the codeowner's
-// repo so a fresh clone Just Works.
-export const WORKER_BASE: string =
-  (import.meta.env.VITE_WORKER_URL as string | undefined) ??
-  'https://vgl-news.danrstaton.workers.dev';
+// repo so a fresh clone Just Works. Forks running prod builds without an
+// explicit override get a one-time console warning at module evaluation so
+// they know they're routing traffic through the codeowner's deploy.
+const CODEOWNER_WORKER_URL = 'https://vgl-news.danrstaton.workers.dev';
+const configuredWorkerUrl = import.meta.env.VITE_WORKER_URL as string | undefined;
+if (!configuredWorkerUrl && import.meta.env.PROD) {
+  console.warn(
+    `[vgl] VITE_WORKER_URL not set; falling back to ${CODEOWNER_WORKER_URL}. ` +
+      `Set VITE_WORKER_URL at build time to point at your own deployment.`,
+  );
+}
+export const WORKER_BASE: string = configuredWorkerUrl ?? CODEOWNER_WORKER_URL;
 
 // TTLs and floors used by client-side caches.
 export const NEWS_STALE_MS = 30 * 60 * 1000; // 30 min

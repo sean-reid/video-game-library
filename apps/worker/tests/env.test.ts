@@ -21,10 +21,16 @@ describe('isDebug', () => {
 });
 
 describe('allowedOrigins', () => {
-  it('returns the built-in defaults when ALLOWED_ORIGINS is unset', () => {
-    const origins = allowedOrigins({ RAWG_API_KEY: 'x' });
+  it('includes localhost in dev defaults when DEBUG=true and ALLOWED_ORIGINS unset', () => {
+    const origins = allowedOrigins({ RAWG_API_KEY: 'x', DEBUG: 'true' });
     expect(origins).toContain('https://danrstaton.github.io');
     expect(origins).toContain('http://localhost:5173');
+  });
+
+  it('omits localhost in prod when ALLOWED_ORIGINS unset', () => {
+    const origins = allowedOrigins({ RAWG_API_KEY: 'x' });
+    expect(origins).toContain('https://danrstaton.github.io');
+    expect(origins).not.toContain('http://localhost:5173');
   });
 
   it('parses a comma-separated env var into trimmed origins', () => {

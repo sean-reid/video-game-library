@@ -14,6 +14,27 @@ const ALLOWED_PATHS = [
   /^\/publishers$/,
 ];
 
+// Allowlist of query params we forward. Anything else gets dropped before we
+// hit RAWG, so a client can't pivot the edge cache or invent novel keys that
+// burn through RAWG's per-key quota.
+const ALLOWED_PARAMS = new Set([
+  'search',
+  'search_exact',
+  'search_precise',
+  'page',
+  'page_size',
+  'dates',
+  'platforms',
+  'genres',
+  'developers',
+  'publishers',
+  'ordering',
+  'metacritic',
+  'tags',
+  'stores',
+  'parent_platforms',
+]);
+
 export function isRawgPath(pathname: string): boolean {
   return pathname === '/rawg' || pathname.startsWith('/rawg/');
 }
@@ -33,10 +54,19 @@ export async function handleRawg(
     return jsonResponse({ error: 'Path not allowed' }, { status: 404 });
   }
 
+  // Filter query params before hashing into the cache key so unknown keys
+  // can't pivot cache buckets, and so the upstream URL only carries params
+  // RAWG actually understands.
+  const safeParams = new URLSearchParams();
+  for (const [k, v] of url.searchParams) {
+    if (ALLOWED_PARAMS.has(k)) safeParams.append(k, v);
+  }
+  const safeQuery = safeParams.toString();
+
   // Cache key excludes the API key so identical client queries hit the same
   // edge entry. Use a stable host so the cache survives across worker URLs.
   const cacheKey = new Request(
-    `https://cache.vgl/rawg-v1${upstreamPath}${url.search ? url.search : ''}`,
+    `https://cache.vgl/rawg-v1${upstreamPath}${safeQuery ? `?${safeQuery}` : ''}`,
   );
   const cache = caches.default;
   const cached = await cache.match(cacheKey);
@@ -44,9 +74,7 @@ export async function handleRawg(
 
   // Forward to RAWG with the key injected server-side.
   const upstreamUrl = new URL(`${RAWG_BASE}${upstreamPath}`);
-  for (const [k, v] of url.searchParams) {
-    if (k !== 'key') upstreamUrl.searchParams.set(k, v);
-  }
+  for (const [k, v] of safeParams) upstreamUrl.searchParams.append(k, v);
   upstreamUrl.searchParams.set('key', env.RAWG_API_KEY);
 
   try {

@@ -24,6 +24,10 @@ const CSP = [
   'frame-src https://www.youtube.com https://www.youtube-nocookie.com',
   "worker-src 'self'",
   "manifest-src 'self'",
+  // Belt-and-braces: `default-src 'self'` blocks plugins in modern browsers,
+  // but `object-src 'none'` is the spec-recommended explicit form and stops
+  // any legacy <object>/<embed> injection path cold.
+  "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
 ].join('; ');
