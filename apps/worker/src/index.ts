@@ -31,13 +31,16 @@ import {
   HEADLINES_TOTAL,
   NON_GAMING_TITLE_RE,
   NSFW_KEYWORDS,
-  PER_SOURCE_TIMEOUT_MS,
   PODCAST_EPISODES,
   PODCAST_SOURCES,
   RSS_SOURCES,
   VICE_KEEP,
   WIKIPEDIA_EVENT_SOURCES,
 } from './config';
+import { fetchText } from './utils/fetch';
+import { corsHeaders, jsonResponse } from './utils/http';
+import { cleanEntities, extractField, extractMeta, stripTags, truncate } from './utils/html';
+import { parseDate } from './utils/date';
 
 export type { Env };
 
@@ -678,20 +681,6 @@ function parseArticle(html: string, sourceUrl: string): ArticleResponse {
   };
 }
 
-function extractMeta(html: string, name: string): string | null {
-  const escName = name.replace(/[:.]/g, '\\$&');
-  const re1 = new RegExp(
-    `<meta[^>]+(?:property|name)=["']${escName}["'][^>]+content=["']([^"']+)["']`,
-    'i',
-  );
-  const re2 = new RegExp(
-    `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escName}["']`,
-    'i',
-  );
-  const m = html.match(re1) ?? html.match(re2);
-  return m?.[1] ?? null;
-}
-
 function extractArticleContent(html: string): string {
   // Try common content containers in order — first match wins.
   const patterns = [
@@ -752,23 +741,6 @@ function cleanArticleHtml(html: string): string {
 // =============================================================================
 // RSS + ATOM PARSING
 // =============================================================================
-async function fetchText(url: string): Promise<string> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), PER_SOURCE_TIMEOUT_MS);
-  try {
-    const r = await fetch(url, {
-      headers: {
-        'User-Agent': 'VGL-News-Worker/1.0 (https://github.com/danrstaton/video-game-library)',
-      },
-      signal: ctrl.signal,
-    });
-    if (!r.ok) throw new Error(`${url} returned ${String(r.status)}`);
-    return await r.text();
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 function parseRSS(xml: string): RSSItem[] {
   const items: RSSItem[] = [];
   for (const m of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/g)) {
@@ -818,59 +790,3 @@ function parseAtom(xml: string): AtomEntry[] {
   return items;
 }
 
-function extractField(xml: string, tag: string): string {
-  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, 'i');
-  const m = xml.match(re);
-  if (!m?.[1]) return '';
-  return m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim();
-}
-
-function stripTags(s: string): string {
-  return cleanEntities(s)
-    .replace(/<[^>]+>/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function cleanEntities(s: string): string {
-  return String(s)
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, n: string) => String.fromCharCode(parseInt(n, 10)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n: string) => String.fromCharCode(parseInt(n, 16)));
-}
-
-function truncate(s: string, n: number): string {
-  if (s.length <= n) return s;
-  return s.slice(0, n).trimEnd() + '…';
-}
-
-function parseDate(s: string): string {
-  if (!s) return new Date().toISOString();
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
-}
-
-// =============================================================================
-// HTTP HELPERS
-// =============================================================================
-function corsHeaders(): Record<string, string> {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
-}
-
-function jsonResponse(data: unknown): Response {
-  return new Response(JSON.stringify(data), {
-    headers: {
-      'Content-Type': 'application/json',
-      ...corsHeaders(),
-    },
-  });
-}
