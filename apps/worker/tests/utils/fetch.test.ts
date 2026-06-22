@@ -14,10 +14,7 @@ describe('fetchTextWithAllowlistedRedirects', () => {
   const allowExample = (u: string): boolean => new URL(u).hostname.endsWith('example.com');
 
   it('returns the body when the initial URL is allowed and returns 200', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(new Response('payload', { status: 200 })),
-    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('payload', { status: 200 })));
     const text = await fetchTextWithAllowlistedRedirects(
       'https://news.example.com/article',
       allowExample,
@@ -40,23 +37,18 @@ describe('fetchTextWithAllowlistedRedirects', () => {
       )
       .mockResolvedValueOnce(new Response('final', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
-    const text = await fetchTextWithAllowlistedRedirects(
-      'https://a.example.com/x',
-      allowExample,
-    );
+    const text = await fetchTextWithAllowlistedRedirects('https://a.example.com/x', allowExample);
     expect(text).toBe('final');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('refuses to follow a redirect into a non-allowed host', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(null, {
-          status: 302,
-          headers: { Location: 'https://internal.local/secret' },
-        }),
-      );
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { Location: 'https://internal.local/secret' },
+      }),
+    );
     vi.stubGlobal('fetch', fetchMock);
     await expect(
       fetchTextWithAllowlistedRedirects('https://news.example.com/article', allowExample),

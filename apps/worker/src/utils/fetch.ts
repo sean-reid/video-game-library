@@ -1,7 +1,6 @@
 import { PER_SOURCE_TIMEOUT_MS } from '../config';
 
-const USER_AGENT =
-  'VGL-News-Worker/1.0 (https://github.com/danrstaton/video-game-library)';
+const USER_AGENT = 'VGL-News-Worker/1.0 (https://github.com/danrstaton/video-game-library)';
 
 export async function fetchText(url: string): Promise<string> {
   const ctrl = new AbortController();
@@ -45,8 +44,7 @@ export async function fetchTextWithAllowlistedRedirects(
       });
       if (r.status >= 300 && r.status < 400) {
         const location = r.headers.get('Location');
-        if (!location)
-          throw new Error(`${current} returned ${String(r.status)} without Location`);
+        if (!location) throw new Error(`${current} returned ${String(r.status)} without Location`);
         current = new URL(location, current).toString();
         continue;
       }
