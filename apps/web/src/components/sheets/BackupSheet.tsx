@@ -2,14 +2,18 @@ import { useEffect, useState } from 'react';
 import type { UseGistVaultResult } from '../../hooks/useGistVault.js';
 import { createGist, fetchGistLibrary, updateGist } from '../../services/gistApi.js';
 import type { Game } from '../../types/index.js';
-import { timeAgo } from '../../utils/dateUtils.js';
 import { ConfirmPanel } from '../common/ConfirmPanel.js';
 import { Icon } from '../common/Icon.js';
+import { GistConnectForm } from './backup/GistConnectForm.js';
+import { GistConnectedPanel } from './backup/GistConnectedPanel.js';
+import { GistUnlockForm } from './backup/GistUnlockForm.js';
 import { Sheet } from './Sheet.js';
 
-type ConnectMode = 'new' | 'existing';
 type BusyAction = '' | 'setup' | 'connect' | 'sync' | 'restore' | 'unlock';
-type PendingConfirm = 'connectExisting' | 'restore' | 'disconnect';
+type PendingConfirm =
+  | { kind: 'connectExisting'; token: string; gistId: string; passphrase: string }
+  | { kind: 'restore' }
+  | { kind: 'disconnect' };
 
 interface BackupSheetProps {
   open: boolean;
@@ -33,11 +37,6 @@ export function BackupSheet({
   hadLegacyConfig,
 }: BackupSheetProps) {
   const { stored, unlocked, isLocked, unlock, lock, connect, disconnect, touchSyncedAt } = vault;
-  const [tokenInput, setTokenInput] = useState('');
-  const [passphraseInput, setPassphraseInput] = useState('');
-  const [unlockPassphrase, setUnlockPassphrase] = useState('');
-  const [gistIdInput, setGistIdInput] = useState('');
-  const [connectMode, setConnectMode] = useState<ConnectMode>('new');
   const [busy, setBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<BusyAction>('');
   const [error, setError] = useState<string | null>(null);
@@ -48,21 +47,13 @@ export function BackupSheet({
     if (open) {
       setError(null);
       setSuccess(null);
-      setTokenInput('');
-      setGistIdInput('');
-      setPassphraseInput('');
-      setUnlockPassphrase('');
-      setConnectMode('new');
       setPendingConfirm(null);
     }
   }, [open]);
 
   const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-  const setupGist = async (): Promise<void> => {
-    const token = tokenInput.trim();
-    const passphrase = passphraseInput;
-    if (!token || passphrase.length < 8) return;
+  const setupGist = async (token: string, passphrase: string): Promise<void> => {
     setBusy(true);
     setBusyAction('setup');
     setError(null);
@@ -75,8 +66,6 @@ export function BackupSheet({
         gistId: gist.id,
         ...(gist.html_url != null ? { gistUrl: gist.html_url } : {}),
       });
-      setTokenInput('');
-      setPassphraseInput('');
       setSuccess('Connected! Your library is backed up and the token is encrypted.');
     } catch (e) {
       setError(errMsg(e));
@@ -86,34 +75,28 @@ export function BackupSheet({
     }
   };
 
-  const requestConnectExisting = (): void => {
-    const token = tokenInput.trim();
-    const id = gistIdInput.trim();
-    if (!token || !id || passphraseInput.length < 8) return;
-    setPendingConfirm('connectExisting');
+  const requestConnectExisting = (token: string, gistId: string, passphrase: string): void => {
+    setPendingConfirm({ kind: 'connectExisting', token, gistId, passphrase });
   };
-  const connectExisting = async (): Promise<void> => {
+  const connectExisting = async (
+    token: string,
+    gistId: string,
+    passphrase: string,
+  ): Promise<void> => {
     setPendingConfirm(null);
-    const token = tokenInput.trim();
-    const id = gistIdInput.trim();
-    const passphrase = passphraseInput;
-    if (!token || !id || passphrase.length < 8) return;
     setBusy(true);
     setBusyAction('connect');
     setError(null);
     setSuccess(null);
     try {
-      const data = await fetchGistLibrary(token, id);
+      const data = await fetchGistLibrary(token, gistId);
       setGames(data);
       await connect({
         token,
         passphrase,
-        gistId: id,
-        gistUrl: `https://gist.github.com/${id}`,
+        gistId,
+        gistUrl: `https://gist.github.com/${gistId}`,
       });
-      setTokenInput('');
-      setGistIdInput('');
-      setPassphraseInput('');
       setSuccess(`Connected and restored ${String(data.length)} games.`);
     } catch (e) {
       setError(errMsg(e));
@@ -123,15 +106,14 @@ export function BackupSheet({
     }
   };
 
-  const handleUnlock = async (): Promise<void> => {
-    if (!unlockPassphrase) return;
+  const handleUnlock = async (passphrase: string): Promise<void> => {
+    if (!passphrase) return;
     setBusy(true);
     setBusyAction('unlock');
     setError(null);
     setSuccess(null);
-    const ok = await unlock(unlockPassphrase);
+    const ok = await unlock(passphrase);
     if (ok) {
-      setUnlockPassphrase('');
       setSuccess('Unlocked. Sync will resume.');
     } else {
       setError('Wrong passphrase.');
@@ -160,7 +142,7 @@ export function BackupSheet({
 
   const requestRestore = (): void => {
     if (!unlocked) return;
-    setPendingConfirm('restore');
+    setPendingConfirm({ kind: 'restore' });
   };
   const restore = async (): Promise<void> => {
     setPendingConfirm(null);
@@ -183,7 +165,7 @@ export function BackupSheet({
   };
 
   const requestDisconnect = (): void => {
-    setPendingConfirm('disconnect');
+    setPendingConfirm({ kind: 'disconnect' });
   };
   const handleDisconnect = (): void => {
     setPendingConfirm(null);
@@ -200,43 +182,41 @@ export function BackupSheet({
     onClose();
   };
 
-  const setupDisabled = busy || !tokenInput.trim() || passphraseInput.length < 8;
-  const connectDisabled =
-    busy || !tokenInput.trim() || !gistIdInput.trim() || passphraseInput.length < 8;
-
   if (pendingConfirm) {
-    const confirms = {
-      connectExisting: {
-        title: 'Connect to existing Gist?',
-        body: `Replace your local library with the version stored in Gist ${gistIdInput.trim().slice(0, 8)}… on connect. Your current local data will be lost. Export first if you want a safety copy.`,
-        confirmLabel: 'Connect & restore',
-        onConfirm: () => {
-          void connectExisting();
-        },
-      },
-      restore: {
-        title: 'Restore from Gist?',
-        body: 'Replace your local library with the version stored in your Gist. Your current local data will be lost. Export first if you want a safety copy.',
-        confirmLabel: 'Restore',
-        onConfirm: () => {
-          void restore();
-        },
-      },
-      disconnect: {
-        title: 'Disconnect Gist sync?',
-        body: 'Your Gist will remain on GitHub but the app will stop syncing to it. You can reconnect anytime.',
-        confirmLabel: 'Disconnect',
-        onConfirm: handleDisconnect,
-      },
-    } as const;
-    const c = confirms[pendingConfirm];
+    let title: string;
+    let body: string;
+    let confirmLabel: string;
+    let onConfirm: () => void;
+    if (pendingConfirm.kind === 'connectExisting') {
+      const { token, gistId, passphrase } = pendingConfirm;
+      title = 'Connect to existing Gist?';
+      body = `Replace your local library with the version stored in Gist ${gistId.slice(0, 8)}… on connect. Your current local data will be lost. Export first if you want a safety copy.`;
+      confirmLabel = 'Connect & restore';
+      onConfirm = () => {
+        void connectExisting(token, gistId, passphrase);
+      };
+    } else if (pendingConfirm.kind === 'restore') {
+      title = 'Restore from Gist?';
+      body =
+        'Replace your local library with the version stored in your Gist. Your current local data will be lost. Export first if you want a safety copy.';
+      confirmLabel = 'Restore';
+      onConfirm = () => {
+        void restore();
+      };
+    } else {
+      title = 'Disconnect Gist sync?';
+      body =
+        'Your Gist will remain on GitHub but the app will stop syncing to it. You can reconnect anytime.';
+      confirmLabel = 'Disconnect';
+      onConfirm = handleDisconnect;
+    }
     return (
-      <Sheet open={open} onClose={onClose} title={c.title}>
+      <Sheet open={open} onClose={onClose} title={title}>
         <ConfirmPanel
-          title={c.title}
-          body={c.body}
-          confirmLabel={c.confirmLabel}
-          onConfirm={c.onConfirm}
+          title={title}
+          body={body}
+          confirmLabel={confirmLabel}
+          onConfirm={onConfirm}
           onCancel={() => {
             setPendingConfirm(null);
           }}
@@ -265,211 +245,36 @@ export function BackupSheet({
         )}
 
         {stored ? (
-          <div className="glass rounded-2xl p-4">
-            <div className="flex items-start gap-3">
-              <span className="text-[18px] mt-0.5">☁️</span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <div className="serif text-[16px] text-white">GitHub Gist sync</div>
-                  <span
-                    className={`inline-block w-1.5 h-1.5 rounded-full ${
-                      isLocked ? 'bg-zinc-500' : 'bg-emerald-400 animate-pulse'
-                    }`}
-                  />
-                  <span
-                    className={`text-[10px] uppercase tracking-wider font-medium ${
-                      isLocked ? 'text-zinc-400' : 'text-emerald-300'
-                    }`}
-                  >
-                    {isLocked ? 'Locked' : 'Unlocked'}
-                  </span>
-                </div>
-                <div className="text-[12px] text-zinc-400 mt-0.5">
-                  Auto-synced{' '}
-                  <span className="tabular-nums">
-                    {stored.lastSyncedAt
-                      ? timeAgo(new Date(stored.lastSyncedAt).toISOString())
-                      : 'never'}
-                  </span>
-                  . Auto-saves 5 seconds after any change while unlocked.
-                </div>
-
-                {isLocked && (
-                  <div className="mt-3">
-                    <input
-                      type="password"
-                      value={unlockPassphrase}
-                      onChange={(e) => {
-                        setUnlockPassphrase(e.target.value);
-                      }}
-                      placeholder="Passphrase"
-                      className="w-full bg-white/5 rounded-xl px-3 py-2 text-[14px] text-white placeholder-zinc-500 outline-none focus:bg-white/10 mb-2"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleUnlock();
-                      }}
-                      disabled={busy || !unlockPassphrase}
-                      className="w-full py-2 rounded-xl bg-white text-ink-950 text-[13px] font-semibold disabled:opacity-40"
-                    >
-                      {busyAction === 'unlock' ? 'Unlocking…' : 'Unlock to sync'}
-                    </button>
-                  </div>
-                )}
-
-                {!isLocked && (
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void syncNow();
-                      }}
-                      disabled={busy}
-                      className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-[12px] font-medium disabled:opacity-50"
-                    >
-                      {busyAction === 'sync' ? 'Syncing…' : 'Sync now'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={requestRestore}
-                      disabled={busy}
-                      className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-[12px] font-medium disabled:opacity-50"
-                    >
-                      {busyAction === 'restore' ? 'Restoring…' : 'Restore from Gist'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={lock}
-                      disabled={busy}
-                      className="px-3 py-1.5 rounded-full text-[12px] font-medium text-zinc-300 hover:bg-white/5 disabled:opacity-50"
-                    >
-                      Lock
-                    </button>
-                    <button
-                      type="button"
-                      onClick={requestDisconnect}
-                      disabled={busy}
-                      className="px-3 py-1.5 rounded-full text-[12px] font-medium text-red-300 hover:bg-red-500/10 disabled:opacity-50"
-                    >
-                      Disconnect
-                    </button>
-                  </div>
-                )}
-                {stored.gistUrl && (
-                  <a
-                    href={stored.gistUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[11px] text-zinc-500 underline mt-2.5 inline-block"
-                  >
-                    View gist on GitHub →
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
+          <GistConnectedPanel
+            stored={stored}
+            isLocked={isLocked}
+            busy={busy}
+            busyAction={busyAction === 'sync' || busyAction === 'restore' ? busyAction : null}
+            onSyncNow={() => {
+              void syncNow();
+            }}
+            onRestore={requestRestore}
+            onLock={lock}
+            onDisconnect={requestDisconnect}
+            lockedSlot={
+              <GistUnlockForm
+                busy={busy}
+                busyAction={busyAction === 'unlock' ? 'unlock' : null}
+                onUnlock={(passphrase) => {
+                  void handleUnlock(passphrase);
+                }}
+              />
+            }
+          />
         ) : (
-          <div className="glass rounded-2xl p-4">
-            <div className="flex items-start gap-3">
-              <span className="text-[18px] mt-0.5">☁️</span>
-              <div className="min-w-0 flex-1">
-                <div className="serif text-[16px] text-white">GitHub Gist sync</div>
-                <div className="text-[12px] text-zinc-400 mt-0.5 mb-3 leading-relaxed">
-                  {connectMode === 'new' ? (
-                    <>
-                      Auto-sync your library to a private GitHub Gist. Your token is encrypted in
-                      this browser with a passphrase you choose; we never see either. Paste a GitHub
-                      token with <strong className="text-zinc-300">Gists: Read &amp; write</strong>{' '}
-                      permission.
-                    </>
-                  ) : (
-                    <>
-                      Connect to a Gist you already have (e.g. when setting up a new phone). Your
-                      local library will be replaced by what&apos;s in the Gist.
-                    </>
-                  )}
-                </div>
-
-                <input
-                  type="password"
-                  value={tokenInput}
-                  onChange={(e) => {
-                    setTokenInput(e.target.value);
-                  }}
-                  placeholder="github_pat_… or ghp_…"
-                  className="w-full bg-white/5 rounded-xl px-3 py-2 text-[14px] text-white placeholder-zinc-500 outline-none focus:bg-white/10 mb-2 font-mono"
-                  autoComplete="off"
-                />
-
-                {connectMode === 'existing' && (
-                  <input
-                    value={gistIdInput}
-                    onChange={(e) => {
-                      setGistIdInput(e.target.value);
-                    }}
-                    placeholder="Gist ID (the long string after /gist.github.com/…)"
-                    className="w-full bg-white/5 rounded-xl px-3 py-2 text-[14px] text-white placeholder-zinc-500 outline-none focus:bg-white/10 mb-2 font-mono"
-                  />
-                )}
-
-                <input
-                  type="password"
-                  value={passphraseInput}
-                  onChange={(e) => {
-                    setPassphraseInput(e.target.value);
-                  }}
-                  placeholder="Passphrase (min 8 chars)"
-                  className="w-full bg-white/5 rounded-xl px-3 py-2 text-[14px] text-white placeholder-zinc-500 outline-none focus:bg-white/10 mb-2"
-                  autoComplete="new-password"
-                />
-
-                {connectMode === 'new' ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void setupGist();
-                    }}
-                    disabled={setupDisabled}
-                    className="w-full py-2 rounded-xl bg-white text-ink-950 text-[13px] font-semibold disabled:opacity-40"
-                  >
-                    {busyAction === 'setup' ? 'Setting up…' : 'Set up new backup'}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={requestConnectExisting}
-                    disabled={connectDisabled}
-                    className="w-full py-2 rounded-xl bg-white text-ink-950 text-[13px] font-semibold disabled:opacity-40"
-                  >
-                    {busyAction === 'connect' ? 'Connecting…' : 'Connect & restore'}
-                  </button>
-                )}
-
-                <div className="flex items-center justify-between gap-3 mt-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setConnectMode(connectMode === 'new' ? 'existing' : 'new');
-                    }}
-                    className="text-[11px] text-zinc-500 underline text-left"
-                  >
-                    {connectMode === 'new'
-                      ? 'Have an existing Gist? Connect to it →'
-                      : '← Create a new backup instead'}
-                  </button>
-                  <a
-                    href="https://github.com/settings/personal-access-tokens/new"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[11px] text-zinc-500 underline shrink-0"
-                  >
-                    Get token →
-                  </a>
-                </div>
-              </div>
-            </div>
-          </div>
+          <GistConnectForm
+            busy={busy}
+            busyAction={busyAction === 'setup' || busyAction === 'connect' ? busyAction : null}
+            onSetupNew={(token, passphrase) => {
+              void setupGist(token, passphrase);
+            }}
+            onConnectExisting={requestConnectExisting}
+          />
         )}
 
         {error && (
