@@ -40,9 +40,7 @@ interface YTPlayerOptions {
   };
 }
 
-interface YTConstructor {
-  new (host: HTMLElement, opts: YTPlayerOptions): YTPlayer;
-}
+type YTConstructor = new (host: HTMLElement, opts: YTPlayerOptions) => YTPlayer;
 
 declare global {
   interface Window {
@@ -171,7 +169,6 @@ export function PodcastPlayer({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId]);
 
   useEffect(() => {
@@ -210,7 +207,7 @@ export function PodcastPlayer({
       );
     };
     const schedule = (): void => {
-      if (rafId == null) rafId = requestAnimationFrame(apply);
+      rafId ??= requestAnimationFrame(apply);
     };
     schedule();
     const ro = new ResizeObserver(schedule);
@@ -306,7 +303,6 @@ export function PodcastPlayer({
     } catch {
       /* unsupported */
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing]);
 
   useEffect(() => {
