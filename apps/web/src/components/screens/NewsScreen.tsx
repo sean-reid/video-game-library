@@ -79,12 +79,7 @@ interface RecentReleaseBannerProps {
   onDismiss: (id: string) => void;
 }
 
-function RecentReleaseBanner({
-  games,
-  onSelect,
-  dismissed,
-  onDismiss,
-}: RecentReleaseBannerProps) {
+function RecentReleaseBanner({ games, onSelect, dismissed, onDismiss }: RecentReleaseBannerProps) {
   const recent = useMemo(() => {
     const now = new Date();
     const cutoff = new Date(now.getTime() - 14 * 86_400_000);
@@ -95,11 +90,7 @@ function RecentReleaseBanner({
       if (ed === 'Available') return true;
       const md = /^(\d{1,2})\/(\d{1,2})$/.exec(ed);
       if (md?.[1] && md[2]) {
-        const date = new Date(
-          now.getFullYear(),
-          parseInt(md[1], 10) - 1,
-          parseInt(md[2], 10),
-        );
+        const date = new Date(now.getFullYear(), parseInt(md[1], 10) - 1, parseInt(md[2], 10));
         return date <= now && date >= cutoff;
       }
       return false;
@@ -226,10 +217,7 @@ function SkeletonHeadlines() {
   return (
     <div className="animate-pulse">
       {[0, 1, 2, 3].map((i) => (
-        <div
-          key={i}
-          className="p-3 flex items-start gap-3 border-b border-white/5 last:border-b-0"
-        >
+        <div key={i} className="p-3 flex items-start gap-3 border-b border-white/5 last:border-b-0">
           <div className="w-20 h-20 rounded-xl bg-white/5 shrink-0" />
           <div className="flex-1 space-y-2 pt-1">
             <div className="h-2.5 w-24 bg-white/5 rounded" />
@@ -251,13 +239,7 @@ interface NewsScreenProps {
   onPlayEpisode: (pod: PodcastBundle, episode: PodcastEpisode) => void;
 }
 
-export function NewsScreen({
-  games,
-  onSelect,
-  tab,
-  onTabChange,
-  onPlayEpisode,
-}: NewsScreenProps) {
+export function NewsScreen({ games, onSelect, tab, onTabChange, onPlayEpisode }: NewsScreenProps) {
   const [dismissed, setDismissed] = useState<Set<string>>(loadDismissed);
   const [filter, setFilter] = useState<NewsFilter>('all');
   const [reader, setReader] = useState<Headline | null>(null);

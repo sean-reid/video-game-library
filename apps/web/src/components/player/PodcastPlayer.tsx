@@ -92,10 +92,7 @@ export function PodcastPlayer({
   const [slotRect, setSlotRect] = useState<SlotRect | null>(null);
 
   const videoId = playing ? extractYouTubeId(playing.episode.youtubeUrl) : null;
-  const chapters = useMemo(
-    () => parseChapters(playing?.episode.description),
-    [playing],
-  );
+  const chapters = useMemo(() => parseChapters(playing?.episode.description), [playing]);
 
   const activeChapterIdx = useMemo(() => {
     if (chapters.length === 0) return -1;
@@ -148,10 +145,7 @@ export function PodcastPlayer({
             // feature-policy grants to the bare minimum the player needs.
             const iframe = hostRef.current?.querySelector('iframe');
             if (iframe) {
-              iframe.setAttribute(
-                'sandbox',
-                'allow-scripts allow-same-origin allow-presentation',
-              );
+              iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
               iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
               iframe.setAttribute('referrerpolicy', 'origin');
             }
@@ -297,9 +291,7 @@ export function PodcastPlayer({
         ],
       });
       navigator.mediaSession.setActionHandler('play', () => playerRef.current?.playVideo?.());
-      navigator.mediaSession.setActionHandler('pause', () =>
-        playerRef.current?.pauseVideo?.(),
-      );
+      navigator.mediaSession.setActionHandler('pause', () => playerRef.current?.pauseVideo?.());
       navigator.mediaSession.setActionHandler('seekbackward', (d) => {
         skip(-(d.seekOffset ?? 10));
       });

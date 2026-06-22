@@ -7,7 +7,13 @@ import { EmptyState } from '../common/EmptyState.js';
 import { Icon } from '../common/Icon.js';
 
 type SortKey = 'yearDesc' | 'yearAsc' | 'console' | 'rating';
-type FilterKey = 'all' | 'top50' | 'masterpiece' | 'outsideTop50' | `console:${string}` | `year:${string}`;
+type FilterKey =
+  | 'all'
+  | 'top50'
+  | 'masterpiece'
+  | 'outsideTop50'
+  | `console:${string}`
+  | `year:${string}`;
 
 interface SelectOption {
   value: string;
@@ -119,13 +125,11 @@ export function PlayedView({ games, onSelect }: PlayedViewProps) {
 
     if (sort === 'yearDesc') {
       list.sort(
-        (a, b) =>
-          ((b.year ?? 0) - (a.year ?? 0)) || ((a.topListRank ?? 999) - (b.topListRank ?? 999)),
+        (a, b) => (b.year ?? 0) - (a.year ?? 0) || (a.topListRank ?? 999) - (b.topListRank ?? 999),
       );
     } else if (sort === 'yearAsc') {
       list.sort(
-        (a, b) =>
-          ((a.year ?? 0) - (b.year ?? 0)) || ((a.topListRank ?? 999) - (b.topListRank ?? 999)),
+        (a, b) => (a.year ?? 0) - (b.year ?? 0) || (a.topListRank ?? 999) - (b.topListRank ?? 999),
       );
     } else if (sort === 'console') {
       list.sort((a, b) => consoleIdx(a) - consoleIdx(b) || (b.year ?? 0) - (a.year ?? 0));
@@ -213,10 +217,7 @@ export function PlayedView({ games, onSelect }: PlayedViewProps) {
       <div className="px-4 space-y-6 pb-32">
         {groups.map((group) => (
           <div key={group.key}>
-            <div
-              className="serif text-[22px] mb-2 px-1"
-              style={{ color: groupColor(group.key) }}
-            >
+            <div className="serif text-[22px] mb-2 px-1" style={{ color: groupColor(group.key) }}>
               {group.key}
             </div>
             <div className="glass rounded-3xl overflow-hidden divide-y divide-white/5">

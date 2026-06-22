@@ -29,9 +29,7 @@ export function TIER(score: number): Tier {
 }
 
 export function gradientFor(game: Pick<Game, 'platform' | 'title'>): string {
-  const matched = game.platform
-    ? PLATFORM_PALETTES[game.platform]
-    : undefined;
+  const matched = game.platform ? PLATFORM_PALETTES[game.platform] : undefined;
   const palettes = matched ?? DEFAULT_PALETTE;
   const [a, b] = palettes[hash(game.title) % palettes.length] ?? palettes[0]!;
   const angle = 120 + (hash(game.title) % 80);

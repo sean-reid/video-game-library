@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { NEWS_STALE_MS } from '../data/config.js';
-import {
-  fetchNews,
-  loadCachedNews,
-  saveCachedNews,
-  type CachedNews,
-} from '../services/newsApi.js';
+import { fetchNews, loadCachedNews, saveCachedNews, type CachedNews } from '../services/newsApi.js';
 
 const REFRESH_ON_FOCUS_MS = 5 * 60 * 1000;
 
@@ -26,9 +21,7 @@ export function useNews(): UseNewsResult {
   const [news, setNews] = useState<CachedNews | null>(initialCache);
   const [loading, setLoading] = useState(!initialCache || initialStale);
   const [error, setError] = useState<unknown>(null);
-  const [lastFetched, setLastFetched] = useState<number | null>(
-    initialCache?._cachedAt ?? null,
-  );
+  const [lastFetched, setLastFetched] = useState<number | null>(initialCache?._cachedAt ?? null);
 
   const refreshRef = useRef<(forceFresh?: boolean) => Promise<void>>(async () => {
     /* assigned below */

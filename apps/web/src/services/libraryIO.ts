@@ -17,9 +17,7 @@ export function exportLibrary(games: Game[]): void {
 function looksLikeGameRecord(g: unknown): g is Game {
   if (!g || typeof g !== 'object') return false;
   const r = g as Record<string, unknown>;
-  return (
-    typeof r.id === 'string' && typeof r.title === 'string' && typeof r.state === 'string'
-  );
+  return typeof r.id === 'string' && typeof r.title === 'string' && typeof r.state === 'string';
 }
 
 export function importLibrary(setGames: (games: Game[]) => void): void {

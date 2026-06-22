@@ -42,10 +42,7 @@ export function App() {
   const enrichStatus = useRawgEnrichment(games, applyPatchToGame);
 
   const existingIds = useMemo(() => new Set(games.map((g) => g.id)), [games]);
-  const editGame = useMemo(
-    () => games.find((g) => g.id === editId) ?? null,
-    [games, editId],
-  );
+  const editGame = useMemo(() => games.find((g) => g.id === editId) ?? null, [games, editId]);
   const selected = useMemo(
     () => games.find((g) => g.id === selectedId) ?? null,
     [games, selectedId],
@@ -135,9 +132,7 @@ export function App() {
               onPlayEpisode={player.playEpisode}
             />
           )}
-          {tab === 'stats' && (
-            <StatsScreen games={games} tab={tab} onTabChange={setTab} />
-          )}
+          {tab === 'stats' && <StatsScreen games={games} tab={tab} onTabChange={setTab} />}
         </>
       )}
 

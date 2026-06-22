@@ -21,7 +21,7 @@ const CSP = [
   "font-src 'self'",
   "connect-src 'self' https://*.workers.dev https://api.github.com https://gist.githubusercontent.com",
   "media-src 'self' blob:",
-  "frame-src https://www.youtube.com https://www.youtube-nocookie.com",
+  'frame-src https://www.youtube.com https://www.youtube-nocookie.com',
   "worker-src 'self'",
   "manifest-src 'self'",
   "base-uri 'self'",

@@ -138,9 +138,7 @@ export function RecommendedView({
           <div className="serif text-[22px]" style={{ color: '#d4a574' }}>
             For you
             {forYou.length > 0 && (
-              <span className="text-zinc-500 text-[14px] ml-2 tabular-nums">
-                {forYou.length}
-              </span>
+              <span className="text-zinc-500 text-[14px] ml-2 tabular-nums">{forYou.length}</span>
             )}
           </div>
           <button
@@ -151,11 +149,7 @@ export function RecommendedView({
             disabled={loading}
             className="glass-light rounded-full px-3 py-1 text-[11px] uppercase tracking-wider text-zinc-300 font-medium disabled:opacity-50"
           >
-            {loading
-              ? 'Loading…'
-              : lastFetchedLabel
-                ? `Refresh · ${lastFetchedLabel}`
-                : 'Refresh'}
+            {loading ? 'Loading…' : lastFetchedLabel ? `Refresh · ${lastFetchedLabel}` : 'Refresh'}
           </button>
         </div>
         {error && <div className="px-5 text-[12px] text-rose-300/80">{error}</div>}
@@ -188,9 +182,7 @@ export function RecommendedView({
         <div className="serif text-[22px] mb-1 px-5" style={{ color: '#d4a574' }}>
           Saved for later
           {savedList.length > 0 && (
-            <span className="text-zinc-500 text-[14px] ml-2 tabular-nums">
-              {savedList.length}
-            </span>
+            <span className="text-zinc-500 text-[14px] ml-2 tabular-nums">{savedList.length}</span>
           )}
         </div>
         {savedList.length === 0 ? (

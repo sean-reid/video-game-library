@@ -1,11 +1,7 @@
 import { RECS_KEY } from '../data/config.js';
 import type { Game } from '../types/index.js';
 import { primaryPlatform } from '../utils/gameHelpers.js';
-import {
-  fetchRawgDetail,
-  type RecCandidate,
-  type TasteProfile,
-} from './rawgApi.js';
+import { fetchRawgDetail, type RecCandidate, type TasteProfile } from './rawgApi.js';
 
 export interface RecsState {
   fetchedAt: number;
@@ -97,10 +93,7 @@ export type ApplyPatchFn = (id: string, patch: Partial<Game>) => void;
 // One-time backfill: Top 50 games need devs/publishers for the profile.
 // Pulls /games/{id} detail per game and patches them in. Paces requests
 // at ~80ms apart.
-export async function enrichTop50Detail(
-  games: Game[],
-  applyPatch: ApplyPatchFn,
-): Promise<number> {
+export async function enrichTop50Detail(games: Game[], applyPatch: ApplyPatchFn): Promise<number> {
   const targets = games.filter(
     (g) =>
       g.topListRank != null &&

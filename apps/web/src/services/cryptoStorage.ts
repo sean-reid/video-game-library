@@ -59,10 +59,7 @@ async function deriveKey(passphrase: string, salt: ArrayBuffer): Promise<CryptoK
   );
 }
 
-export async function encryptSecret(
-  plaintext: string,
-  passphrase: string,
-): Promise<EncryptedBlob> {
+export async function encryptSecret(plaintext: string, passphrase: string): Promise<EncryptedBlob> {
   const salt = randomBytes(SALT_BYTES);
   const iv = randomBytes(IV_BYTES);
   const key = await deriveKey(passphrase, salt);

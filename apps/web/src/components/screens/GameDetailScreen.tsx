@@ -115,12 +115,7 @@ export function GameDetailScreen({
             <div className="flex items-center gap-2">
               {game.topListRank != null && tier && (
                 <div className="glass rounded-full px-3 py-1.5 flex items-center gap-1.5">
-                  <Icon
-                    name="star"
-                    filled
-                    className="w-3.5 h-3.5"
-                    style={{ color: tier.color }}
-                  />
+                  <Icon name="star" filled className="w-3.5 h-3.5" style={{ color: tier.color }} />
                   <span
                     className="text-[12px] font-semibold tracking-wide"
                     style={{ color: tier.color }}

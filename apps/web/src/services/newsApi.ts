@@ -1,11 +1,5 @@
 import { DISMISSED_KEY, NEWS_CACHE_KEY, READ_KEY, WORKER_BASE } from '../data/config.js';
-import type {
-  ArticleResponse,
-  Game,
-  Headline,
-  NewsBundle,
-  PodcastBundle,
-} from '../types/index.js';
+import type { ArticleResponse, Game, Headline, NewsBundle, PodcastBundle } from '../types/index.js';
 
 const NEWS_URL = `${WORKER_BASE}/news`;
 
@@ -123,10 +117,7 @@ function normalizeForMatch(s: string | null | undefined): string {
 // Does an article mention a game in the user's library? Returns the matched
 // game, or null. Strips punctuation when comparing so "007: First Light"
 // matches "007 First Light".
-export function matchLibraryGame(
-  article: Headline | null | undefined,
-  games: Game[],
-): Game | null {
+export function matchLibraryGame(article: Headline | null | undefined, games: Game[]): Game | null {
   if (!article || games.length === 0) return null;
   const haystack = normalizeForMatch(`${article.title} ${article.excerpt ?? ''}`);
   const sorted = [...games].sort((a, b) => b.title.length - a.title.length);

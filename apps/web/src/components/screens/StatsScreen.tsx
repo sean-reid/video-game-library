@@ -45,18 +45,12 @@ export function StatsScreen({ games, tab, onTabChange }: StatsScreenProps) {
         <TierStackedBar rows={stats.byYearTiers} labelWidth="3rem" />
       </SectionCard>
 
-      <SectionCard
-        title="Score vs. system"
-        subtitle="Tier breakdown of played games by platform"
-      >
+      <SectionCard title="Score vs. system" subtitle="Tier breakdown of played games by platform">
         <TierLegend />
         <TierStackedBar rows={stats.byPlatformTiers} labelWidth="5rem" />
       </SectionCard>
 
-      <SectionCard
-        title="Top franchises"
-        subtitle="Series with 2 or more games in your library"
-      >
+      <SectionCard title="Top franchises" subtitle="Series with 2 or more games in your library">
         <TopFranchises rows={stats.topFranchises} />
       </SectionCard>
 

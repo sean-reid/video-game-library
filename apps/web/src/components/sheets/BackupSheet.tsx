@@ -30,8 +30,7 @@ export function BackupSheet({
   vault,
   hadLegacyConfig,
 }: BackupSheetProps) {
-  const { stored, unlocked, isLocked, unlock, lock, connect, disconnect, touchSyncedAt } =
-    vault;
+  const { stored, unlocked, isLocked, unlock, lock, connect, disconnect, touchSyncedAt } = vault;
   const [tokenInput, setTokenInput] = useState('');
   const [passphraseInput, setPassphraseInput] = useState('');
   const [unlockPassphrase, setUnlockPassphrase] = useState('');
@@ -220,8 +219,8 @@ export function BackupSheet({
       <div className="px-4 py-6 space-y-3">
         {hadLegacyConfig && !stored && (
           <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-3 text-[12px] text-amber-200 leading-relaxed">
-            Your previous backup used a cleartext token. Reconnect below to encrypt it
-            at rest with a passphrase.
+            Your previous backup used a cleartext token. Reconnect below to encrypt it at rest with
+            a passphrase.
           </div>
         )}
 
@@ -341,17 +340,15 @@ export function BackupSheet({
                 <div className="text-[12px] text-zinc-400 mt-0.5 mb-3 leading-relaxed">
                   {connectMode === 'new' ? (
                     <>
-                      Auto-sync your library to a private GitHub Gist. Your token is
-                      encrypted in this browser with a passphrase you choose; we never
-                      see either. Paste a GitHub token with{' '}
-                      <strong className="text-zinc-300">Gists: Read &amp; write</strong>{' '}
+                      Auto-sync your library to a private GitHub Gist. Your token is encrypted in
+                      this browser with a passphrase you choose; we never see either. Paste a GitHub
+                      token with <strong className="text-zinc-300">Gists: Read &amp; write</strong>{' '}
                       permission.
                     </>
                   ) : (
                     <>
-                      Connect to a Gist you already have (e.g. when setting up a new
-                      phone). Your local library will be replaced by what&apos;s in the
-                      Gist.
+                      Connect to a Gist you already have (e.g. when setting up a new phone). Your
+                      local library will be replaced by what&apos;s in the Gist.
                     </>
                   )}
                 </div>

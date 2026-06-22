@@ -141,11 +141,9 @@ export function computeStats(games: Game[]): ComputedStats {
     CATEGORIES.map((c) => {
       if (masterpieces.length === 0 || otherTop50.length === 0) return [c.key, 0];
       const masterAvg =
-        masterpieces.reduce((acc, g) => acc + (g.rating?.[c.key] ?? 0), 0) /
-        masterpieces.length;
+        masterpieces.reduce((acc, g) => acc + (g.rating?.[c.key] ?? 0), 0) / masterpieces.length;
       const otherAvg =
-        otherTop50.reduce((acc, g) => acc + (g.rating?.[c.key] ?? 0), 0) /
-        otherTop50.length;
+        otherTop50.reduce((acc, g) => acc + (g.rating?.[c.key] ?? 0), 0) / otherTop50.length;
       return [c.key, masterAvg - otherAvg];
     }),
   ) as Record<RatingCategory, number>;
