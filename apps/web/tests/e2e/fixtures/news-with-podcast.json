@@ -1,0 +1,23 @@
+{
+  "fetchedAt": "2026-06-21T17:00:00.000Z",
+  "headlines": [],
+  "podcasts": [
+    {
+      "id": "kinda-funny-gamescast",
+      "show": "Kinda Funny Gamescast",
+      "accent": "#a8b4c0",
+      "coverGradient": "linear-gradient(135deg, #0c4a6e 0%, #1e293b 100%)",
+      "youtubeUrl": "https://www.youtube.com/@KindaFunnyGames",
+      "episodes": [
+        {
+          "title": "E2E test episode",
+          "date": "2026-06-21",
+          "duration": "1:00:00",
+          "youtubeUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          "description": "Deterministic episode fixture used by the playback E2E."
+        }
+      ]
+    }
+  ],
+  "events": []
+}
