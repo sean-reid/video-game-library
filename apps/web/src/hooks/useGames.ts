@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { loadGames, rerankTop50, saveGames } from '../services/libraryStorage.js';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { loadGames, loadSeedGames, rerankTop50, saveGames } from '../services/libraryStorage.js';
 import type { Completion, Game } from '../types/index.js';
 
 export interface UseGamesResult {
@@ -15,10 +15,31 @@ export interface UseGamesResult {
 
 // Owns the games list + persistence. Re-ranks Top 50 after add/update/delete
 // so the rank stays consistent with the score floor.
+//
+// Seed (~50kB gzip) is dynamic-imported only on a first boot where
+// localStorage has nothing for us — every subsequent load skips the import
+// entirely. The empty initial state flashes for one frame on that first
+// boot; on every other visit the games array is populated synchronously.
 export function useGames(): UseGamesResult {
-  const [games, setGamesState] = useState<Game[]>(loadGames);
+  const [games, setGamesState] = useState<Game[]>(() => loadGames() ?? []);
+  const seedNeeded = useRef(loadGames() === null);
 
   useEffect(() => {
+    if (!seedNeeded.current) return;
+    seedNeeded.current = false;
+    void loadSeedGames().then((seed) => {
+      // Don't clobber a library the user already built up in the gap
+      // between mount and dynamic-import settling (RAWG enrichment can
+      // patch state during this window).
+      setGamesState((prev) => (prev.length === 0 ? seed : prev));
+    });
+  }, []);
+
+  useEffect(() => {
+    // Never persist `[]` — that would shadow the seed on a future boot
+    // where the dynamic import races a quick reload. Once games is
+    // non-empty (either seeded or user-built), every change persists.
+    if (games.length === 0) return;
     saveGames(games);
   }, [games]);
 

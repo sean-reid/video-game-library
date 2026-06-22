@@ -1,11 +1,14 @@
-/* Self-hosted Lora + Inter. Weights match what the legacy app pulled from
-   Google Fonts (Lora 400/500/600 + 400 italic, Inter 400/500/600/700) so
-   the rendered text stays visually identical. */
-@import '@fontsource/inter/400.css';
-@import '@fontsource/inter/500.css';
-@import '@fontsource/inter/600.css';
-@import '@fontsource/inter/700.css';
-@import '@fontsource/lora/400.css';
-@import '@fontsource/lora/500.css';
-@import '@fontsource/lora/600.css';
-@import '@fontsource/lora/400-italic.css';
+/* Self-hosted Lora + Inter, latin subset only. Weights match what the
+   legacy app pulled from Google Fonts (Lora 400/500/600 + 400 italic,
+   Inter 400/500/600/700) so the rendered text stays visually identical.
+   Importing the weight-only roots (e.g. `400.css`) pulls every subset
+   @fontsource ships (cyrillic / greek / vietnamese / latin-ext), inflating
+   the SW precache by ~600kB for characters the UI never renders. */
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/inter/latin-600.css';
+@import '@fontsource/inter/latin-700.css';
+@import '@fontsource/lora/latin-400.css';
+@import '@fontsource/lora/latin-500.css';
+@import '@fontsource/lora/latin-600.css';
+@import '@fontsource/lora/latin-400-italic.css';

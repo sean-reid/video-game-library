@@ -1,17 +1,26 @@
 import { STORAGE_KEY } from '../data/config.js';
-import { SEED_GAMES } from '../data/seed.js';
 import type { Game } from '../types/index.js';
 
 const TOP_LIST_FLOOR = 80;
 
-export function loadGames(): Game[] {
+// Returns the persisted library, or null when the user has never run the
+// app before (or localStorage was cleared). Callers handle the null by
+// dynamic-importing the seed via `loadSeedGames` — that import is ~50kB
+// gzip we don't want shipping in the main bundle for the 99% of loads
+// where storage already has the user's library.
+export function loadGames(): Game[] | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw) as Game[];
   } catch {
     /* corrupted entry */
   }
-  return SEED_GAMES;
+  return null;
+}
+
+export async function loadSeedGames(): Promise<Game[]> {
+  const mod = await import('../data/seed.js');
+  return mod.SEED_GAMES;
 }
 
 export function saveGames(games: Game[]): void {
