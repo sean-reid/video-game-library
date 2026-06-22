@@ -2,7 +2,7 @@ import { ARTICLE_ALLOWED_HOSTS, ARTICLE_CACHE_TTL_SECONDS, CACHE_TTL_SECONDS } f
 import type { Env } from './env';
 import { buildNewsBundle } from './news-bundle';
 import { parseArticle } from './parsers/article';
-import { fetchText } from './utils/fetch';
+import { fetchTextWithAllowlistedRedirects } from './utils/fetch';
 import { jsonResponse } from './utils/http';
 
 export function isAllowedArticleUrl(rawUrl: string): boolean {
@@ -55,7 +55,7 @@ export async function getArticleCached(
   if (cached) return cached;
 
   try {
-    const html = await fetchText(articleUrl);
+    const html = await fetchTextWithAllowlistedRedirects(articleUrl, isAllowedArticleUrl);
     const article = parseArticle(html, articleUrl);
     const response = jsonResponse(article);
     response.headers.set('Cache-Control', `public, max-age=${ARTICLE_CACHE_TTL_SECONDS}`);
