@@ -1,9 +1,24 @@
-import { useEffect, useState } from 'react';
+import DOMPurify, { type Config as PurifyConfig } from 'dompurify';
+import { useEffect, useMemo, useState } from 'react';
 import { fetchArticle } from '../../services/newsApi.js';
 import type { ArticleResponse, Headline } from '../../types/index.js';
 import { timeAgo } from '../../utils/dateUtils.js';
 import { SOURCE_COLORS } from '../cards/HeadlineCard.js';
 import { Sheet } from './Sheet.js';
+
+// Defense-in-depth: even though the worker controls the article body, run
+// it through DOMPurify before injecting into the DOM. Strips scripts, event
+// handlers, javascript: URIs, and other XSS vectors regardless of source.
+const PURIFY_CONFIG: PurifyConfig = {
+  ALLOWED_TAGS: [
+    'a', 'b', 'blockquote', 'br', 'code', 'em', 'figcaption', 'figure', 'h1',
+    'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img', 'li', 'ol', 'p', 'picture',
+    'pre', 'small', 'source', 'span', 'strong', 'sub', 'sup', 'table', 'tbody',
+    'td', 'tfoot', 'th', 'thead', 'tr', 'u', 'ul',
+  ],
+  ALLOWED_ATTR: ['href', 'src', 'srcset', 'sizes', 'alt', 'title', 'colspan', 'rowspan'],
+  ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|tel:|data:image\/)/i,
+};
 
 export function articleKey(article: Headline | null | undefined): string {
   return article?.id ?? article?.url ?? '';
@@ -39,6 +54,11 @@ export function ReaderSheet({ open, item, onClose, onMarkRead }: ReaderSheetProp
         setLoadingArticle(false);
       });
   }, [open, item]);
+
+  const safeContent = useMemo(
+    () => (article?.content ? DOMPurify.sanitize(article.content, PURIFY_CONFIG) : ''),
+    [article?.content],
+  );
 
   if (!open || !item) return null;
   const sourceColor = SOURCE_COLORS[item.source] ?? '#a1a1aa';
@@ -130,10 +150,10 @@ export function ReaderSheet({ open, item, onClose, onMarkRead }: ReaderSheetProp
           </div>
         )}
 
-        {article?.content && (
+        {safeContent && (
           <div
             className="article-body mt-5"
-            dangerouslySetInnerHTML={{ __html: article.content }}
+            dangerouslySetInnerHTML={{ __html: safeContent }}
           />
         )}
 
