@@ -9,27 +9,11 @@ import { BackupSheet } from './components/sheets/BackupSheet.js';
 import { EditGameSheet } from './components/sheets/EditGameSheet.js';
 import type { TopTab } from './components/navigation/TitleNav.js';
 import { useGistAutoSync } from './hooks/useGistAutoSync.js';
+import { useRawgEnrichment } from './hooks/useRawgEnrichment.js';
 import { loadGistConfig } from './services/gistApi.js';
 import { exportLibrary, importLibrary } from './services/libraryIO.js';
 import { loadGames, rerankTop50, saveGames } from './services/libraryStorage.js';
-import { searchRawg } from './services/rawgApi.js';
 import type { Completion, Game, GistSyncConfig, PodcastBundle, PodcastEpisode } from './types/index.js';
-import { parseExpected } from './utils/dateUtils.js';
-
-interface EnrichStatus {
-  active: boolean;
-  done: number;
-  total: number;
-}
-
-function targetYearOf(g: Game): number | null {
-  if (g.year != null) return g.year;
-  if (g.expectedDate) {
-    const sk = parseExpected(g.expectedDate).sortKey;
-    if (sk >= 10_000) return Math.floor(sk / 10_000);
-  }
-  return null;
-}
 
 export function App() {
   const [games, setGames] = useState<Game[]>(loadGames);
@@ -53,13 +37,6 @@ export function App() {
   };
 
   useGistAutoSync(games, gistConfig, setGistConfig);
-
-  const [enrichStatus, setEnrichStatus] = useState<EnrichStatus>({
-    active: false,
-    done: 0,
-    total: 0,
-  });
-  const enrichStartedRef = useRef(false);
 
   const existingIds = useMemo(() => new Set(games.map((g) => g.id)), [games]);
   const addGame = (g: Game): void => {
@@ -136,54 +113,7 @@ export function App() {
     saveGames(games);
   }, [games]);
 
-  useEffect(() => {
-    if (enrichStartedRef.current) return undefined;
-    enrichStartedRef.current = true;
-
-    let cancelled = false;
-    const snapshot = games;
-    const toEnrich = snapshot.filter((g) => !g.rawgChecked && g.state !== 'rumored');
-    if (toEnrich.length === 0) return undefined;
-
-    setEnrichStatus({ active: true, done: 0, total: toEnrich.length });
-
-    void (async (): Promise<void> => {
-      let done = 0;
-      for (const g of toEnrich) {
-        if (cancelled) break;
-        try {
-          const match = await searchRawg(g.title, targetYearOf(g));
-          const patch: Partial<Game> = match
-            ? {
-                coverImage: match.background_image ?? null,
-                rawgId: match.id,
-                rawgReleased: match.released ?? null,
-                rawgPlatforms: (match.platforms ?? [])
-                  .map((p) => p.platform?.name)
-                  .filter((n): n is string => Boolean(n)),
-                rawgPlaytime: match.playtime ?? null,
-                rawgGenres: (match.genres ?? [])
-                  .map((genre) => genre.slug)
-                  .filter((s): s is string => Boolean(s)),
-                rawgMetacritic: match.metacritic ?? null,
-                rawgChecked: true,
-              }
-            : { rawgChecked: true };
-          setGames((prev) => prev.map((x) => (x.id === g.id ? { ...x, ...patch } : x)));
-        } catch (e) {
-          console.warn('RAWG miss for', g.title, e);
-        }
-        done++;
-        setEnrichStatus({ active: true, done, total: toEnrich.length });
-        await new Promise((r) => setTimeout(r, 60));
-      }
-      setEnrichStatus({ active: false, done, total: toEnrich.length });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const enrichStatus = useRawgEnrichment(games, applyPatchToGame);
 
   const selected = useMemo(
     () => games.find((g) => g.id === selectedId) ?? null,
