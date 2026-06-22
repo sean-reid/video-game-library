@@ -13,7 +13,6 @@
 
 import type { Env } from './env';
 import type {
-  ArticleResponse,
   AtomEntry,
   Category,
   EventItem,
@@ -22,7 +21,6 @@ import type {
   NewsBundle,
   PodcastBundle,
   Platform,
-  RSSItem,
 } from './types';
 import {
   CACHE_TTL_SECONDS,
@@ -39,8 +37,14 @@ import {
 } from './config';
 import { fetchText } from './utils/fetch';
 import { corsHeaders, jsonResponse } from './utils/http';
-import { cleanEntities, extractField, extractMeta, stripTags, truncate } from './utils/html';
-import { parseDate } from './utils/date';
+import { parseArticle } from './parsers/article';
+import { parseAtom, parseRSS } from './parsers/rss';
+import {
+  extractDateFromText,
+  extractTimeFromText,
+  extractWikipediaUpcoming,
+  parseEventDate,
+} from './parsers/event';
 
 export type { Env };
 
@@ -475,164 +479,6 @@ function extractEventsFromHeadlines(headlines: Headline[]): EventItem[] {
   return events;
 }
 
-const MONTHS: Record<string, number> = {
-  january: 0,
-  february: 1,
-  march: 2,
-  april: 3,
-  may: 4,
-  june: 5,
-  july: 6,
-  august: 7,
-  september: 8,
-  october: 9,
-  november: 10,
-  december: 11,
-  jan: 0,
-  feb: 1,
-  mar: 2,
-  apr: 3,
-  jun: 5,
-  jul: 6,
-  aug: 7,
-  sep: 8,
-  sept: 8,
-  oct: 9,
-  nov: 10,
-  dec: 11,
-};
-
-function extractDateFromText(text: string, contextDate: Date): Date | null {
-  const monthRe =
-    '(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)';
-  // "June 2, 2026", "Jun 2 2026", "June 2nd", "2nd of June"
-  let m = new RegExp(`\\b${monthRe}\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s*(\\d{4}))?\\b`, 'i').exec(
-    text,
-  );
-  m ??= new RegExp(
-    `\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${monthRe}(?:,?\\s*(\\d{4}))?\\b`,
-    'i',
-  ).exec(text);
-  if (!m?.[1] || !m[2]) return null;
-
-  let monthName: string;
-  let day: number;
-  let year: number | null;
-  if (MONTHS[m[1].toLowerCase()] !== undefined) {
-    monthName = m[1];
-    day = parseInt(m[2], 10);
-    year = m[3] ? parseInt(m[3], 10) : null;
-  } else {
-    day = parseInt(m[1], 10);
-    monthName = m[2];
-    year = m[3] ? parseInt(m[3], 10) : null;
-  }
-  const month = MONTHS[monthName.toLowerCase()];
-  if (month === undefined || !day) return null;
-
-  if (!year) {
-    // Anchor to the article's publish date when available — "June 2" in an
-    // article published May 20, 2026 almost certainly means June 2, 2026,
-    // even if the Worker's wall clock is in a different year.
-    const anchorYear = contextDate.getFullYear();
-    const candidate = new Date(anchorYear, month, day);
-    // If the candidate is well before the anchor, the event is next year.
-    year =
-      candidate.getTime() < contextDate.getTime() - 30 * 86_400_000 ? anchorYear + 1 : anchorYear;
-  }
-
-  return new Date(year, month, day);
-}
-
-function extractTimeFromText(text: string): string | null {
-  return extractTimeFromCell(text) || null;
-}
-
-function extractWikipediaUpcoming(html: string): { date: string; time: string } | null {
-  const now = Date.now();
-  const candidates: { date: string; time: string; ts: number }[] = [];
-  for (const rowMatch of html.matchAll(/<tr[^>]*>[\s\S]*?<\/tr>/g)) {
-    const cells = [...rowMatch[0].matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/g)]
-      .map((m) =>
-        stripTags(m[1] ?? '')
-          .replace(/\[\d+\]/g, '')
-          .trim(),
-      )
-      .filter(Boolean);
-    if (cells.length === 0) continue;
-
-    let dateCell = '';
-    let dateTs = 0;
-    let timeCell = '';
-    for (const cell of cells) {
-      if (!dateCell) {
-        const parsed = parseEventDate(cell);
-        if (parsed && parsed.getTime() > now - 86_400_000) {
-          dateCell = cell;
-          dateTs = parsed.getTime();
-        }
-      }
-      if (!timeCell) {
-        const t = extractTimeFromCell(cell);
-        if (t) timeCell = t;
-      }
-    }
-    if (dateCell && dateTs > now - 86_400_000) {
-      candidates.push({ date: dateCell, time: timeCell || 'TBA', ts: dateTs });
-    }
-  }
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => a.ts - b.ts);
-  const first = candidates[0];
-  if (!first) return null;
-  return { date: first.date, time: first.time };
-}
-
-// Permissive time extractor — handles "5:00 PM EDT", "17:00 UTC",
-// "5 p.m.", "2 PM Pacific". Returns the full matched substring.
-function extractTimeFromCell(cell: string): string {
-  // 1) HH:MM with optional am/pm and timezone — e.g. "5:00 PM EDT", "17:00 UTC"
-  let m =
-    /\b(\d{1,2}):(\d{2})\s*(?:(am|pm|a\.m\.|p\.m\.)\s*)?(?:\(?\s*(UTC|GMT|EST|EDT|PST|PDT|CST|CDT|MST|MDT|ET|PT|CT|MT|JST|CET|Pacific|Eastern|Central|Mountain)\s*\)?)?/i.exec(
-      cell,
-    );
-  if (m) return m[0].trim();
-  // 2) Hour with am/pm (no minutes) — e.g. "2 PM Pacific"
-  m =
-    /\b(\d{1,2})\s*(am|pm|a\.m\.|p\.m\.)\s*(?:\(?\s*(UTC|GMT|EST|EDT|PST|PDT|CST|CDT|MST|MDT|ET|PT|CT|MT|JST|CET|Pacific|Eastern|Central|Mountain)\s*\)?)?/i.exec(
-      cell,
-    );
-  if (m) return m[0].trim();
-  return '';
-}
-
-function parseEventDate(s: string): Date | null {
-  if (!s) return null;
-  const cleaned = String(s)
-    .replace(/\[\d+\]/g, '')
-    .trim();
-
-  // Try native Date parse first ("June 2, 2026", "2 June 2026", "2026-06-02")
-  const native = new Date(cleaned);
-  if (!isNaN(native.getTime()) && native.getFullYear() > 2000 && native.getFullYear() < 2100) {
-    return native;
-  }
-
-  // "June 2, 2026" / "Jun 2 2026"
-  const monthDayYear =
-    /(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\s+(\d{1,2}),?\s+(\d{4})/i.exec(
-      cleaned,
-    );
-  if (monthDayYear?.[1] && monthDayYear[2] && monthDayYear[3]) {
-    const m = MONTHS[monthDayYear[1].toLowerCase()];
-    if (m !== undefined) {
-      return new Date(parseInt(monthDayYear[3], 10), m, parseInt(monthDayYear[2], 10));
-    }
-  }
-
-  return null;
-}
-
 // =============================================================================
 // FULL ARTICLE FETCH + CONTENT EXTRACTION
 // =============================================================================
@@ -655,138 +501,3 @@ async function getArticleCached(articleUrl: string, ctx: ExecutionContext): Prom
     return jsonResponse({ error: String(e), sourceUrl: articleUrl });
   }
 }
-
-function parseArticle(html: string, sourceUrl: string): ArticleResponse {
-  // `||` rather than `??` is deliberate: an empty-string og:title should
-  // still fall through to the <title> tag.
-  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
-  const title = extractMeta(html, 'og:title') || extractField(html, 'title');
-  const byline = extractMeta(html, 'article:author') ?? extractMeta(html, 'author');
-  const publishedAt = extractMeta(html, 'article:published_time') ?? extractMeta(html, 'pubdate');
-  const heroImage = extractMeta(html, 'og:image') ?? extractMeta(html, 'twitter:image');
-  const siteName = extractMeta(html, 'og:site_name');
-  const description = extractMeta(html, 'og:description') ?? extractMeta(html, 'description');
-
-  const content = extractArticleContent(html);
-
-  return {
-    title: cleanEntities(title),
-    byline: byline ? cleanEntities(byline) : null,
-    publishedAt: publishedAt ?? null,
-    heroImage: heroImage ?? null,
-    siteName: siteName ? cleanEntities(siteName) : new URL(sourceUrl).hostname,
-    description: description ? cleanEntities(description) : null,
-    content,
-    sourceUrl,
-  };
-}
-
-function extractArticleContent(html: string): string {
-  // Try common content containers in order — first match wins.
-  const patterns = [
-    /<article[^>]*>([\s\S]*?)<\/article>/i,
-    /<div[^>]+class=["'][^"']*(?:c-entry-content|article-content|article__content|article-body|post-content|entry-content|story-content|content-body|article__main|m-detail--body)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
-    /<section[^>]+class=["'][^"']*(?:article|story)[^"']*["'][^>]*>([\s\S]*?)<\/section>/i,
-    /<main[^>]*>([\s\S]*?)<\/main>/i,
-  ];
-
-  let raw: string | null = null;
-  for (const re of patterns) {
-    const m = html.match(re);
-    if (m?.[1]) {
-      raw = m[1];
-      break;
-    }
-  }
-  if (!raw) return '';
-  return cleanArticleHtml(raw);
-}
-
-function cleanArticleHtml(html: string): string {
-  let s = html;
-  // Strip executable / dangerous content
-  s = s.replace(/<script[\s\S]*?<\/script>/gi, '');
-  s = s.replace(/<style[\s\S]*?<\/style>/gi, '');
-  s = s.replace(/<noscript[\s\S]*?<\/noscript>/gi, '');
-  s = s.replace(/<svg[\s\S]*?<\/svg>/gi, '');
-  // Strip chrome
-  s = s.replace(/<nav[\s\S]*?<\/nav>/gi, '');
-  s = s.replace(/<aside[\s\S]*?<\/aside>/gi, '');
-  s = s.replace(/<footer[\s\S]*?<\/footer>/gi, '');
-  s = s.replace(/<header[\s\S]*?<\/header>/gi, '');
-  s = s.replace(/<form[\s\S]*?<\/form>/gi, '');
-  // Strip ads / share / related panels by class hint
-  s = s.replace(
-    /<(div|section|aside)[^>]+class=["'][^"']*(?:ad-|advertisement|share|social|newsletter|related|recommended|sidebar|promo|sponsor|subscribe|signup|comment|disqus|nielsen|connatix)[^"']*["'][^>]*>[\s\S]*?<\/\1>/gi,
-    '',
-  );
-  // Strip iframes except YouTube / Vimeo embeds
-  s = s.replace(
-    /<iframe[^>]+src=["'](?!https?:\/\/(?:www\.)?(?:youtube|vimeo)\.com)[^"']*["'][^>]*>[\s\S]*?<\/iframe>/gi,
-    '',
-  );
-  // Strip event handlers, tracking attrs, inline styles, classes, IDs
-  s = s.replace(/\son\w+=["'][^"']*["']/g, '');
-  s = s.replace(/\sdata-[\w-]+=["'][^"']*["']/g, '');
-  s = s.replace(/\sstyle=["'][^"']*["']/g, '');
-  s = s.replace(/\sclass=["'][^"']*["']/g, '');
-  s = s.replace(/\sid=["'][^"']*["']/g, '');
-  // Force img src to use https and lazy load
-  s = s.replace(/<img\b/gi, '<img loading="lazy"');
-  // Collapse whitespace
-  s = s.replace(/[ \t\n]+/g, ' ').replace(/>\s+</g, '><');
-  return s.trim();
-}
-
-// =============================================================================
-// RSS + ATOM PARSING
-// =============================================================================
-function parseRSS(xml: string): RSSItem[] {
-  const items: RSSItem[] = [];
-  for (const m of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/g)) {
-    const raw = m[1] ?? '';
-    const title = extractField(raw, 'title');
-    const link = extractField(raw, 'link');
-    const desc = extractField(raw, 'description') || extractField(raw, 'content:encoded');
-    const pubDate =
-      extractField(raw, 'pubDate') ||
-      extractField(raw, 'dc:date') ||
-      extractField(raw, 'published');
-    const enc = /<enclosure[^>]+url="([^"]+)"/.exec(raw);
-    const media =
-      /<media:content[^>]+url="([^"]+)"/i.exec(raw) ??
-      /<media:thumbnail[^>]+url="([^"]+)"/i.exec(raw);
-    const inlineImg = /<img[^>]+src="([^"]+)"/i.exec(desc);
-    items.push({
-      id: link || title,
-      title: cleanEntities(title),
-      url: link,
-      excerpt: truncate(stripTags(desc), 220),
-      publishedAt: parseDate(pubDate),
-      coverImage: enc?.[1] ?? media?.[1] ?? inlineImg?.[1] ?? null,
-    });
-  }
-  return items;
-}
-
-function parseAtom(xml: string): AtomEntry[] {
-  const items: AtomEntry[] = [];
-  for (const m of xml.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/g)) {
-    const raw = m[1] ?? '';
-    const title = extractField(raw, 'title');
-    const linkMatch = /<link[^>]+href="([^"]+)"/.exec(raw);
-    const link = linkMatch?.[1] ?? '';
-    const published = extractField(raw, 'published') || extractField(raw, 'updated');
-    // YouTube includes the video description inside <media:description>
-    const description = extractField(raw, 'media:description');
-    items.push({
-      id: extractField(raw, 'yt:videoId') || link,
-      title: cleanEntities(title),
-      description: description ? cleanEntities(description) : '',
-      url: link,
-      publishedAt: parseDate(published),
-    });
-  }
-  return items;
-}
-
