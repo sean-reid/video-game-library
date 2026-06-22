@@ -8,7 +8,8 @@ import { AddGameSheet } from './components/sheets/AddGameSheet.js';
 import { BackupSheet } from './components/sheets/BackupSheet.js';
 import { EditGameSheet } from './components/sheets/EditGameSheet.js';
 import type { TopTab } from './components/navigation/TitleNav.js';
-import { loadGistConfig, saveGistConfig, updateGist } from './services/gistApi.js';
+import { useGistAutoSync } from './hooks/useGistAutoSync.js';
+import { loadGistConfig } from './services/gistApi.js';
 import { exportLibrary, importLibrary } from './services/libraryIO.js';
 import { loadGames, rerankTop50, saveGames } from './services/libraryStorage.js';
 import { searchRawg } from './services/rawgApi.js';
@@ -51,29 +52,7 @@ export function App() {
     setPlayingEpisode(null);
   };
 
-  const skipFirstGistSync = useRef(true);
-  useEffect(() => {
-    if (skipFirstGistSync.current) {
-      skipFirstGistSync.current = false;
-      return undefined;
-    }
-    if (!gistConfig) return undefined;
-    const timer = setTimeout(() => {
-      void (async (): Promise<void> => {
-        try {
-          await updateGist(gistConfig.token, gistConfig.gistId, games);
-          const next: GistSyncConfig = { ...gistConfig, lastSyncedAt: Date.now() };
-          saveGistConfig(next);
-          setGistConfig(next);
-        } catch (e) {
-          console.warn('Gist auto-sync failed:', e);
-        }
-      })();
-    }, 5000);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [games, gistConfig?.token, gistConfig?.gistId]);
+  useGistAutoSync(games, gistConfig, setGistConfig);
 
   const [enrichStatus, setEnrichStatus] = useState<EnrichStatus>({
     active: false,
