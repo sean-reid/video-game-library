@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { searchRawg } from '../services/rawgApi.js';
 import type { Game } from '../types/index.js';
 import { parseExpected } from '../utils/dateUtils.js';
+import { reportError } from '../utils/reportError.js';
 
 export interface EnrichStatus {
   active: boolean;
@@ -48,7 +49,7 @@ async function enrichOne(
       : { rawgChecked: true };
     applyPatch(g.id, patch);
   } catch (e) {
-    console.warn('RAWG miss for', g.title, e);
+    reportError(`rawgEnrichment.miss:${g.title}`, e);
   }
 }
 

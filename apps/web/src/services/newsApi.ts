@@ -1,5 +1,6 @@
 import { DISMISSED_KEY, NEWS_CACHE_KEY, READ_KEY, WORKER_BASE } from '../data/config.js';
 import type { ArticleResponse, Game, Headline, NewsBundle, PodcastBundle } from '../types/index.js';
+import { reportError } from '../utils/reportError.js';
 
 const NEWS_URL = `${WORKER_BASE}/news`;
 
@@ -58,8 +59,8 @@ export function loadCachedNews(): CachedNews | null {
   try {
     const raw = localStorage.getItem(NEWS_CACHE_KEY);
     if (raw) return JSON.parse(raw) as CachedNews;
-  } catch {
-    /* corrupted entry — fall through to null */
+  } catch (e) {
+    reportError('newsApi.loadCache', e);
   }
   return null;
 }
@@ -67,8 +68,8 @@ export function loadCachedNews(): CachedNews | null {
 export function saveCachedNews(data: CachedNews): void {
   try {
     localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify(data));
-  } catch {
-    /* quota / disabled storage — drop silently */
+  } catch (e) {
+    reportError('newsApi.saveCache', e);
   }
 }
 
@@ -76,8 +77,8 @@ export function loadRead(): Set<string> {
   try {
     const raw = localStorage.getItem(READ_KEY);
     if (raw) return new Set(JSON.parse(raw) as string[]);
-  } catch {
-    /* corrupted entry */
+  } catch (e) {
+    reportError('newsApi.loadRead', e);
   }
   return new Set();
 }
@@ -85,15 +86,16 @@ export function loadRead(): Set<string> {
 export function saveRead(set: Set<string>): void {
   try {
     localStorage.setItem(READ_KEY, JSON.stringify([...set]));
-  } catch {
-    /* quota */
+  } catch (e) {
+    reportError('newsApi.saveRead', e);
   }
 }
 
 export function loadDismissed(): Set<string> {
   try {
     return new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY) ?? '[]') as string[]);
-  } catch {
+  } catch (e) {
+    reportError('newsApi.loadDismissed', e);
     return new Set();
   }
 }
@@ -101,8 +103,8 @@ export function loadDismissed(): Set<string> {
 export function saveDismissed(set: Set<string>): void {
   try {
     localStorage.setItem(DISMISSED_KEY, JSON.stringify([...set]));
-  } catch {
-    /* quota */
+  } catch (e) {
+    reportError('newsApi.saveDismissed', e);
   }
 }
 

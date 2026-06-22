@@ -1,6 +1,7 @@
 import { STORAGE_KEY } from '../data/config.js';
 import type { Game } from '../types/index.js';
 import { RANK_SENTINEL } from '../utils/gameHelpers.js';
+import { reportError } from '../utils/reportError.js';
 
 const TOP_LIST_FLOOR = 80;
 
@@ -13,8 +14,8 @@ export function loadGames(): Game[] | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw) as Game[];
-  } catch {
-    /* corrupted entry */
+  } catch (e) {
+    reportError('libraryStorage.load', e);
   }
   return null;
 }
@@ -27,8 +28,8 @@ export async function loadSeedGames(): Promise<Game[]> {
 export function saveGames(games: Game[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(games));
-  } catch {
-    /* quota or disabled storage */
+  } catch (e) {
+    reportError('libraryStorage.save', e);
   }
 }
 
