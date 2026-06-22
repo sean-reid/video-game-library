@@ -1,0 +1,23 @@
+name = "vgl-news"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Default (no env) is intentionally empty so deploys must specify --env dev or --env prod.
+# Each environment below is self-contained.
+
+[env.dev]
+name = "vgl-news-dev"
+workers_dev = true
+# RAWG_API_KEY is stored as a secret: `wrangler secret put RAWG_API_KEY --env dev`
+# Set DEBUG=true to surface _debug fields in /news responses during local work.
+[env.dev.vars]
+DEBUG = "true"
+
+[env.prod]
+name = "vgl-news"
+workers_dev = true
+# Codeowner runs once at cutover:
+#   wrangler secret put RAWG_API_KEY --env prod
+[env.prod.vars]
+DEBUG = "false"
