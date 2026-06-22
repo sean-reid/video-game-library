@@ -16,14 +16,7 @@ import {
   STATE_META,
   TIER_COLOR_FOR_LABEL,
 } from '../data/constants.js';
-import {
-  COVER_OVERRIDES,
-  DEFAULT_PALETTE,
-  PLATFORM_PALETTES,
-  PLATFORM_PRIORITY,
-  PLATFORM_SHORT,
-  RAWG_PLATFORM_IDS,
-} from '../data/platforms.js';
+import { PLATFORM_PRIORITY, RAWG_PLATFORM_IDS } from '../data/platforms.js';
 import { SEED_GAMES } from '../data/seed.js';
 import {
   GIST_FILENAME,
@@ -44,6 +37,7 @@ import {
   fetchRawgDetail,
   fetchRecommendations,
   searchRawg,
+  searchRawgList,
   yearOf,
 } from '../services/rawgApi.ts';
 import {
@@ -52,6 +46,16 @@ import {
   loadYouTubeApi,
   parseChapters,
 } from '../services/youtubeApi.ts';
+import {
+  TIER,
+  effectiveCover,
+  gradientFor,
+  hash,
+  pickBestPlatform,
+  primaryPlatform,
+  primaryYear,
+  shortPlatform,
+} from '../utils/gameHelpers.ts';
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -59,27 +63,6 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 // HELPERS
 // =============================================================================
 
-const TIER = (score) => {
-  if (score >= 100) return { label: 'Masterpiece', color: '#e2b878' }; // rich gold
-  if (score >= 90)  return { label: 'Amazing',     color: '#a8b4c0' }; // cool silver
-  if (score >= 80)  return { label: 'Great',       color: '#b87349' }; // warm bronze
-  if (score >= 70)  return { label: 'Good',        color: '#5d6770' };
-  return { label: 'Mixed', color: '#4a5260' };
-};
-
-// Deterministic hash for generative gradients
-const hash = (str) => {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
-  return Math.abs(h);
-};
-
-const gradientFor = (game) => {
-  const palettes = PLATFORM_PALETTES[game.platform] || DEFAULT_PALETTE;
-  const [a, b] = palettes[hash(game.title) % palettes.length];
-  const angle = 120 + (hash(game.title) % 80);
-  return `linear-gradient(${angle}deg, ${a} 0%, ${b} 100%)`;
-};
 
 
 const parseExpected = (s) => {
@@ -195,9 +178,6 @@ const rerankTop50 = (games) => {
     newRanks.has(g.id) ? { ...g, topListRank: newRanks.get(g.id) } : g
   );
 };
-
-// Resolve the effective cover URL — manual override beats RAWG match.
-const effectiveCover = (game) => COVER_OVERRIDES[game.id]?.coverImage || game.coverImage || null;
 
 // =============================================================================
 // RECOMMENDATIONS — "For you" engine
@@ -361,23 +341,6 @@ const shortDateLabel = (s) => {
   return s;
 };
 
-const shortPlatform = (name) => PLATFORM_SHORT[name] || name;
-
-const pickBestPlatform = (platforms) => {
-  if (!platforms || platforms.length === 0) return '';
-  for (const p of PLATFORM_PRIORITY) {
-    if (platforms.includes(p)) return p;
-  }
-  return platforms[0]; // anything else (weird/old/regional)
-};
-
-// Resolve a primary platform — user-supplied wins, else best RAWG platform (normalized)
-const primaryPlatform = (game) =>
-  game.platform || (game.rawgPlatforms && shortPlatform(pickBestPlatform(game.rawgPlatforms))) || '';
-
-// Resolve a display year — user-supplied wins, else parsed from RAWG release
-const primaryYear = (game) =>
-  game.year || (game.rawgReleased ? parseInt(String(game.rawgReleased).slice(0, 4), 10) : null);
 
 const GameCard = ({ game, onClick }) => {
   const tier = game.rating ? TIER(game.rating.total) : null;
@@ -1680,10 +1643,8 @@ const RawgSearch = ({ onPick, onSkip }) => {
     setLoading(true);
     debounceRef.current = setTimeout(async () => {
       try {
-        const url = `${RAWG_BASE}/games?key=${RAWG_KEY}&search=${encodeURIComponent(q)}&page_size=6`;
-        const res = await fetch(url);
-        const data = await res.json();
-        setResults(data.results || []);
+        const hits = await searchRawgList(q, 6);
+        setResults(hits);
       } catch (e) {
         setResults([]);
       }

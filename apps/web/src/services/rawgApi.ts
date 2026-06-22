@@ -48,6 +48,17 @@ interface RawgDetail extends RawgSearchHit {
   publishers?: { slug?: string }[];
 }
 
+// Free-text search returning up to `pageSize` candidates (vs searchRawg
+// which picks one best match). Used by the Add Game flow.
+export async function searchRawgList(query: string, pageSize = 6): Promise<RawgSearchHit[]> {
+  const q = encodeURIComponent(query);
+  const url = `${RAWG_PROXY_BASE}/games?search=${q}&page_size=${String(pageSize)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`RAWG ${String(res.status)}`);
+  const data = (await res.json()) as RawgSearchResponse;
+  return data.results ?? [];
+}
+
 export async function searchRawg(
   title: string,
   year?: number | null,
