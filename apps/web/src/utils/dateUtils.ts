@@ -93,24 +93,6 @@ export function upcomingSortKey(game: Pick<Game, 'expectedDate' | 'year'>): numb
   return sortKey;
 }
 
-// Short date label for the Upcoming card badge (e.g. "Jun 25", "Fall '26",
-// "2027", "Now").
-export function shortDateLabel(s: string | null | undefined): string {
-  if (!s) return '';
-  if (s === 'Available') return 'Now';
-  const md = /^(\d{1,2})\/(\d{1,2})$/.exec(s);
-  if (md?.[1] && md[2]) {
-    return `${MONTHS[parseInt(md[1], 10) - 1] ?? ''} ${parseInt(md[2], 10)}`;
-  }
-  const h1 = /^H(\d)\s+(\d{4})$/.exec(s);
-  if (h1?.[1] && h1[2]) return `H${h1[1]} '${h1[2].slice(2)}`;
-  const season = /^(Spring|Summer|Fall|Winter)\s+(\d{4})$/.exec(s);
-  if (season?.[1] && season[2]) return `${season[1]} '${season[2].slice(2)}`;
-  const y = /^(\d{4})$/.exec(s);
-  if (y?.[1]) return y[1];
-  return s;
-}
-
 // Relative ago label for a recent ISO timestamp (news headlines, etc.).
 export function timeAgo(iso: string): string {
   const then = new Date(iso).getTime();

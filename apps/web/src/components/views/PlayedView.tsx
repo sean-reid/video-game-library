@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { TIER_COLOR_FOR_LABEL } from '../../data/constants.js';
 import { PLATFORM_PRIORITY } from '../../data/platforms.js';
 import type { Game } from '../../types/index.js';
-import { TIER, primaryPlatform, shortPlatform } from '../../utils/gameHelpers.js';
+import { RANK_SENTINEL, TIER, primaryPlatform, shortPlatform } from '../../utils/gameHelpers.js';
 import { EmptyState } from '../common/EmptyState.js';
 import { Icon } from '../common/Icon.js';
 
@@ -125,11 +125,15 @@ export function PlayedView({ games, onSelect }: PlayedViewProps) {
 
     if (sort === 'yearDesc') {
       list.sort(
-        (a, b) => (b.year ?? 0) - (a.year ?? 0) || (a.topListRank ?? 999) - (b.topListRank ?? 999),
+        (a, b) =>
+          (b.year ?? 0) - (a.year ?? 0) ||
+          (a.topListRank ?? RANK_SENTINEL) - (b.topListRank ?? RANK_SENTINEL),
       );
     } else if (sort === 'yearAsc') {
       list.sort(
-        (a, b) => (a.year ?? 0) - (b.year ?? 0) || (a.topListRank ?? 999) - (b.topListRank ?? 999),
+        (a, b) =>
+          (a.year ?? 0) - (b.year ?? 0) ||
+          (a.topListRank ?? RANK_SENTINEL) - (b.topListRank ?? RANK_SENTINEL),
       );
     } else if (sort === 'console') {
       list.sort((a, b) => consoleIdx(a) - consoleIdx(b) || (b.year ?? 0) - (a.year ?? 0));

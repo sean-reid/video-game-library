@@ -1,7 +1,7 @@
 import type { SectionId } from '../components/navigation/SectionNav.js';
 import type { Game } from '../types/index.js';
 import { upcomingSortKey } from './dateUtils.js';
-import { primaryYear } from './gameHelpers.js';
+import { RANK_SENTINEL, primaryYear } from './gameHelpers.js';
 
 // Ordered list of game IDs for prev/next navigation inside the detail
 // screen. Mirrors each section's own list order so the arrows feel like
@@ -37,7 +37,8 @@ export function buildNavOrder(games: Game[], section: SectionId | null | undefin
         .filter((g) => g.state === 'played')
         .sort(
           (a, b) =>
-            (b.year ?? 0) - (a.year ?? 0) || (a.topListRank ?? 999) - (b.topListRank ?? 999),
+            (b.year ?? 0) - (a.year ?? 0) ||
+            (a.topListRank ?? RANK_SENTINEL) - (b.topListRank ?? RANK_SENTINEL),
         );
       break;
     default:

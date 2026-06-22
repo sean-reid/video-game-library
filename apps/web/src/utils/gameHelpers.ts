@@ -7,6 +7,13 @@ import {
 } from '../data/platforms.js';
 import type { Game, TierLabel } from '../types/index.js';
 
+// Sort sentinel for unranked / unparseable rank values. Picked deliberately
+// above any plausible Top-50 rank so unranked games always sort to the end,
+// and stable across every call site (`libraryStorage.rerankTop50`,
+// `utils/navOrder`, `components/views/PlayedView`). Don't reduce without
+// checking all three.
+export const RANK_SENTINEL = 9999;
+
 // Deterministic string-to-int hash for generative gradients.
 export function hash(str: string): number {
   let h = 0;

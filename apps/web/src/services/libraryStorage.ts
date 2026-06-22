@@ -1,5 +1,6 @@
 import { STORAGE_KEY } from '../data/config.js';
 import type { Game } from '../types/index.js';
+import { RANK_SENTINEL } from '../utils/gameHelpers.js';
 
 const TOP_LIST_FLOOR = 80;
 
@@ -46,7 +47,7 @@ export function rerankTop50(games: Game[]): Game[] {
   top50.sort((a, b) => {
     const scoreDiff = (b.rating?.total ?? 0) - (a.rating?.total ?? 0);
     if (scoreDiff !== 0) return scoreDiff;
-    return (a.topListRank ?? 9999) - (b.topListRank ?? 9999);
+    return (a.topListRank ?? RANK_SENTINEL) - (b.topListRank ?? RANK_SENTINEL);
   });
   const newRanks = new Map<string, number>();
   top50.forEach((g, i) => newRanks.set(g.id, i + 1));
