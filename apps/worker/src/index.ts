@@ -15,6 +15,7 @@
 
 import { getArticleCached, getNews } from './cache';
 import type { Env } from './env';
+import { handleRawg, isRawgPath } from './proxies/rawg';
 import { fetchAllEvents } from './sources/events';
 import { fetchAllHeadlines } from './sources/headlines';
 import { corsHeaders, jsonResponse } from './utils/http';
@@ -44,6 +45,10 @@ export default {
         return jsonResponse({ error: 'Missing url parameter' });
       }
       return await getArticleCached(articleUrl, ctx);
+    }
+
+    if (isRawgPath(url.pathname)) {
+      return await handleRawg(request, env, ctx);
     }
 
     if (url.pathname === '/debug') {
