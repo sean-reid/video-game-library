@@ -40,6 +40,12 @@ import {
   parseChapters,
 } from '../services/youtubeApi.ts';
 import { GameCard } from '../components/cards/GameCard.tsx';
+import { FormSection } from '../components/forms/inputs/FormSection.tsx';
+import { RatingSliderRow } from '../components/forms/inputs/RatingSliderRow.tsx';
+import { StateSelector } from '../components/forms/inputs/StateSelector.tsx';
+import { TextArea } from '../components/forms/inputs/TextArea.tsx';
+import { TextInput } from '../components/forms/inputs/TextInput.tsx';
+import { Toggle } from '../components/forms/inputs/Toggle.tsx';
 import { HeadlineCard, SOURCE_COLORS } from '../components/cards/HeadlineCard.tsx';
 import { PodcastCard } from '../components/cards/PodcastCard.tsx';
 import { RecCandidateCard } from '../components/cards/RecCandidateCard.tsx';
@@ -984,82 +990,6 @@ const Sheet = ({ open, onClose, title, leftAction, rightAction, children }) => {
     </div>
   );
 };
-
-// =============================================================================
-// FORM BITS
-// =============================================================================
-const ALL_STATES = ['rumored', 'upcoming', 'recommended', 'playing', 'played'];
-
-const StateSelector = ({ value, onChange }) => (
-  <div className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
-    {ALL_STATES.map(s => {
-      const on = value === s;
-      return (
-        <button
-          key={s}
-          type="button"
-          onClick={() => onChange(s)}
-          className={`shrink-0 rounded-full px-3.5 py-1.5 text-[12px] font-medium tracking-wide transition-all ${
-            on ? 'bg-white text-ink-950' : 'glass-light text-zinc-300'
-          }`}
-        >
-          {STATE_META[s].label}
-        </button>
-      );
-    })}
-  </div>
-);
-
-const FormSection = ({ label, children }) => (
-  <div className="px-4 py-3 border-b border-white/5">
-    <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-medium mb-2">{label}</div>
-    {children}
-  </div>
-);
-
-const TextInput = (props) => (
-  <input
-    {...props}
-    className={`w-full bg-white/5 rounded-xl px-3 py-2 text-[15px] text-white placeholder-zinc-500 outline-none focus:bg-white/8 focus:ring-1 focus:ring-white/20 ${props.className || ''}`}
-  />
-);
-
-const TextArea = (props) => (
-  <textarea
-    {...props}
-    className={`w-full bg-white/5 rounded-xl px-3 py-2 text-[15px] text-white placeholder-zinc-500 outline-none focus:bg-white/8 focus:ring-1 focus:ring-white/20 resize-none ${props.className || ''}`}
-  />
-);
-
-const RatingSliderRow = ({ label, value, onChange, color }) => (
-  <div className="flex items-center gap-3 py-1">
-    <div className="text-[12px] uppercase tracking-wider text-zinc-400 w-20 shrink-0 font-medium">{label}</div>
-    <input
-      type="range"
-      min="0"
-      max="10"
-      step="1"
-      value={value || 0}
-      onChange={e => onChange(parseInt(e.target.value, 10))}
-      className="flex-1 accent-amber-300"
-      style={{ accentColor: color }}
-    />
-    <div className="text-[13px] tabular-nums w-5 text-right text-zinc-200 font-medium">{value || 0}</div>
-  </div>
-);
-
-const Toggle = ({ label, value, onChange }) => (
-  <button
-    type="button"
-    onClick={() => onChange(!value)}
-    className={`flex items-center justify-between w-full px-3 py-2.5 rounded-xl ${value ? 'bg-white/10' : 'bg-white/5'}`}
-  >
-    <span className="text-[14px] text-zinc-100">{label}</span>
-    <div className={`w-9 h-5 rounded-full relative transition-colors ${value ? 'bg-gold' : 'bg-white/15'}`}>
-      <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${value ? 'left-4' : 'left-0.5'}`} />
-    </div>
-  </button>
-);
 
 // =============================================================================
 // RAWG SEARCH (for Add flow)
