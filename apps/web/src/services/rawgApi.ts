@@ -19,15 +19,15 @@ export const yearOf = (released: string | null | undefined): number | null => {
 // 1993 SNES Star Fox.
 const YEAR_MATCH_TOLERANCE = 5;
 
-interface RawgPlatformRef {
+export interface RawgPlatformRef {
   platform?: { name?: string };
 }
 
-interface RawgGenreRef {
+export interface RawgGenreRef {
   slug?: string;
 }
 
-interface RawgSearchHit {
+export interface RawgSearchHit {
   id: number;
   slug?: string;
   name: string;
