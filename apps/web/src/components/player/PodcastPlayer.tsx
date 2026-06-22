@@ -1,61 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  extractYouTubeId,
-  formatPlayerTime,
-  loadYouTubeApi,
-  parseChapters,
-  youtubeUrlAt,
-} from '../../services/youtubeApi.js';
-import type { PodcastBundle, PodcastEpisode } from '../../types/index.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useYouTubeIframe } from '../../hooks/useYouTubeIframe.js';
+import { formatPlayerTime, parseChapters, youtubeUrlAt } from '../../services/youtubeApi.js';
+import type { PlayerMode, PlayingItem } from '../../types/index.js';
 import { Icon } from '../common/Icon.js';
+import { PodcastMiniBar } from './PodcastMiniBar.js';
+
+export type { PlayerMode, PlayingItem };
 
 const SKIP_SECONDS = 15;
-
-export interface PlayingItem {
-  pod: PodcastBundle;
-  episode: PodcastEpisode;
-}
-
-export type PlayerMode = 'expanded' | 'mini';
-
-interface YTPlayer {
-  loadVideoById?: (id: string) => void;
-  playVideo?: () => void;
-  pauseVideo?: () => void;
-  seekTo?: (seconds: number, allowSeekAhead: boolean) => void;
-  getCurrentTime?: () => number;
-  getDuration?: () => number;
-  destroy?: () => void;
-}
-
-interface YTPlayerOptions {
-  videoId: string;
-  width: string | number;
-  height: string | number;
-  playerVars: Record<string, number>;
-  events: {
-    onReady: (e: YTReadyEvent) => void;
-    onStateChange: (e: YTStateChangeEvent) => void;
-    onError: () => void;
-  };
-}
-
-type YTConstructor = new (host: HTMLElement, opts: YTPlayerOptions) => YTPlayer;
-
-declare global {
-  interface Window {
-    YT?: { Player: YTConstructor };
-  }
-}
-
-interface YTStateChangeEvent {
-  data: number;
-  target: YTPlayer & { getDuration: () => number };
-}
-
-interface YTReadyEvent {
-  target: YTPlayer & { getDuration: () => number; playVideo: () => void };
-}
 
 interface SlotRect {
   top: number;
@@ -79,21 +31,25 @@ export function PodcastPlayer({
   onExpand,
   onClose,
 }: PodcastPlayerProps) {
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const playerRef = useRef<YTPlayer | null>(null);
+  const {
+    hostRef,
+    isPlaying,
+    currentTime,
+    duration,
+    setScrubbing,
+    setCurrentTime,
+    error,
+    togglePlay,
+    skip,
+    seekTo,
+    getLiveTime,
+  } = useYouTubeIframe(playing);
+
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const slotRef = useRef<HTMLDivElement | null>(null);
-  const [isReady, setIsReady] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [scrubbing, setScrubbing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [slotRect, setSlotRect] = useState<SlotRect | null>(null);
 
-  const videoId = playing ? extractYouTubeId(playing.episode.youtubeUrl) : null;
   const chapters = useMemo(() => parseChapters(playing?.episode.description), [playing]);
-
   const activeChapterIdx = useMemo(() => {
     if (chapters.length === 0) return -1;
     let idx = -1;
@@ -105,93 +61,11 @@ export function PodcastPlayer({
     return idx;
   }, [chapters, currentTime]);
 
-  useEffect(() => {
-    if (!playing || !videoId) return;
-    let cancelled = false;
-    setError(null);
-
-    void loadYouTubeApi().then(() => {
-      if (cancelled || !hostRef.current) return;
-      const existing = playerRef.current;
-      if (existing?.loadVideoById) {
-        try {
-          existing.loadVideoById(videoId);
-        } catch {
-          /* ignore */
-        }
-        return;
-      }
-      const YT = window.YT;
-      if (!YT) return;
-      playerRef.current = new YT.Player(hostRef.current, {
-        videoId,
-        width: '100%',
-        height: '100%',
-        playerVars: {
-          autoplay: 1,
-          controls: 0,
-          modestbranding: 1,
-          rel: 0,
-          playsinline: 1,
-          disablekb: 1,
-          fs: 0,
-          iv_load_policy: 3,
-        },
-        events: {
-          onReady: (e: YTReadyEvent) => {
-            if (cancelled) return;
-            // Lock down the iframe YouTube just mounted. sandbox blocks
-            // top-frame navigation and popups; allow restricts powerful
-            // feature-policy grants to the bare minimum the player needs.
-            const iframe = hostRef.current?.querySelector('iframe');
-            if (iframe) {
-              iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
-              iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-              iframe.setAttribute('referrerpolicy', 'origin');
-            }
-            setIsReady(true);
-            setDuration(e.target.getDuration() || 0);
-            try {
-              e.target.playVideo();
-            } catch {
-              /* ignore */
-            }
-          },
-          onStateChange: (e: YTStateChangeEvent) => {
-            const s = e.data;
-            setIsPlaying(s === 1);
-            if (s === 1 || s === 2) {
-              const d = e.target.getDuration() || 0;
-              if (d && Math.abs(d - duration) > 0.5) setDuration(d);
-            }
-          },
-          onError: () => {
-            setError("This video can't be embedded.");
-          },
-        },
-      });
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [videoId]);
-
-  useEffect(() => {
-    if (!isReady || !playerRef.current) return undefined;
-    const id = setInterval(() => {
-      const p = playerRef.current;
-      if (!p?.getCurrentTime || scrubbing) return;
-      const t = p.getCurrentTime();
-      if (typeof t === 'number') setCurrentTime(t);
-      const d = p.getDuration?.() ?? 0;
-      if (d && Math.abs(d - duration) > 0.5) setDuration(d);
-    }, 500);
-    return () => {
-      clearInterval(id);
-    };
-  }, [isReady, scrubbing, duration]);
-
+  // Measure the video slot so the fixed iframe can be positioned over it.
+  // ResizeObserver callback is coalesced to a single rAF and the setState
+  // bails when the rect hasn't shifted; without that, the SW-style
+  // observer → setState → re-render → observer cycle could saturate the
+  // main thread and make the player feel sluggish.
   useEffect(() => {
     if (mode !== 'expanded') {
       setSlotRect(null);
@@ -226,29 +100,6 @@ export function PodcastPlayer({
     };
   }, [mode, chapters.length, playing]);
 
-  const skip = (delta: number): void => {
-    const p = playerRef.current;
-    if (!p?.getCurrentTime || !p.seekTo) return;
-    const t = (p.getCurrentTime() || 0) + delta;
-    const next = Math.max(0, Math.min(t, duration || t));
-    p.seekTo(next, true);
-    setCurrentTime(next);
-  };
-  const togglePlay = (): void => {
-    const p = playerRef.current;
-    if (!p) return;
-    if (isPlaying) p.pauseVideo?.();
-    else p.playVideo?.();
-  };
-  const seekTo = useCallback((t: number) => {
-    playerRef.current?.seekTo?.(t, true);
-    playerRef.current?.playVideo?.();
-    setCurrentTime(t);
-  }, []);
-
-  const currentYouTubeUrl = (secs: number): string =>
-    youtubeUrlAt(playing?.episode.youtubeUrl, secs);
-
   const chapterRows = useMemo(
     () =>
       chapters.map((c, i) => {
@@ -279,76 +130,17 @@ export function PodcastPlayer({
     [chapters, activeChapterIdx, seekTo],
   );
 
-  useEffect(() => {
-    if (!playing || !('mediaSession' in navigator)) return;
-    try {
-      navigator.mediaSession.metadata = new window.MediaMetadata({
-        title: playing.episode.title || 'Podcast',
-        artist: playing.pod.show || 'Kinda Funny',
-        artwork: [
-          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
-        ],
-      });
-      navigator.mediaSession.setActionHandler('play', () => playerRef.current?.playVideo?.());
-      navigator.mediaSession.setActionHandler('pause', () => playerRef.current?.pauseVideo?.());
-      navigator.mediaSession.setActionHandler('seekbackward', (d) => {
-        skip(-(d.seekOffset ?? 10));
-      });
-      navigator.mediaSession.setActionHandler('seekforward', (d) => {
-        skip(d.seekOffset ?? 10);
-      });
-      navigator.mediaSession.setActionHandler('previoustrack', () => {
-        skip(-10);
-      });
-      navigator.mediaSession.setActionHandler('nexttrack', () => {
-        skip(10);
-      });
-    } catch {
-      /* unsupported */
-    }
-  }, [playing]);
-
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return;
-    try {
-      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-    } catch {
-      /* ignore */
-    }
-    try {
-      if (duration > 0 && navigator.mediaSession.setPositionState) {
-        navigator.mediaSession.setPositionState({
-          duration,
-          position: Math.min(currentTime, duration),
-          playbackRate: 1,
-        });
-      }
-    } catch {
-      /* setPositionState can throw on bad values */
-    }
-  }, [isPlaying, currentTime, duration]);
-
-  useEffect(() => {
-    if (playing) return;
-    if (playerRef.current) {
-      try {
-        playerRef.current.destroy?.();
-      } catch {
-        /* ignore */
-      }
-      playerRef.current = null;
-      setIsReady(false);
-      setIsPlaying(false);
-      setCurrentTime(0);
-      setDuration(0);
-    }
-  }, [playing]);
-
   if (!playing) return null;
+
+  const currentYouTubeUrl = (secs: number): string =>
+    youtubeUrlAt(playing.episode.youtubeUrl, secs);
 
   return (
     <>
+      {/* Stable iframe slot. When expanded it's positioned over the sheet's
+          video placeholder; when collapsed it's parked off-screen so audio
+          keeps playing. The iframe itself is created by the YT IFrame API
+          inside hostRef via useYouTubeIframe. */}
       <div
         className="fixed"
         style={
@@ -442,10 +234,7 @@ export function PodcastPlayer({
                   rel="noopener noreferrer"
                   onClick={(e) => {
                     e.stopPropagation();
-                    const live = playerRef.current?.getCurrentTime?.();
-                    e.currentTarget.href = currentYouTubeUrl(
-                      typeof live === 'number' ? live : currentTime,
-                    );
+                    e.currentTarget.href = currentYouTubeUrl(getLiveTime());
                   }}
                   className="flex items-center gap-1 shrink-0 glass-light rounded-full px-2.5 py-1 text-[10px] uppercase tracking-wider text-zinc-300 font-medium"
                 >
@@ -533,58 +322,15 @@ export function PodcastPlayer({
       )}
 
       {mode === 'mini' && (
-        <div className="fixed bottom-0 inset-x-0 z-40 pointer-events-none">
-          <div className="max-w-md mx-auto pb-safe">
-            <div
-              className="mx-3 mb-3 glass rounded-2xl flex items-center gap-3 p-2 pointer-events-auto cursor-pointer"
-              onClick={onExpand}
-              role="button"
-              tabIndex={0}
-              aria-label="Expand player"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') onExpand();
-              }}
-            >
-              <div
-                className="w-11 h-11 rounded-xl overflow-hidden shrink-0 grain flex items-center justify-center text-xl"
-                style={{ background: playing.pod.coverGradient }}
-              >
-                🎙️
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[12.5px] text-white truncate leading-tight">
-                  {playing.episode.title}
-                </div>
-                <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium truncate mt-0.5">
-                  {playing.pod.show} · {formatPlayerTime(currentTime)} /{' '}
-                  {formatPlayerTime(duration)}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  togglePlay();
-                }}
-                className="bg-white text-ink-950 rounded-full w-9 h-9 flex items-center justify-center shrink-0"
-                aria-label={isPlaying ? 'Pause' : 'Play'}
-              >
-                <Icon name={isPlaying ? 'pause' : 'play'} className="w-4 h-4" filled />
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClose();
-                }}
-                className="p-2 rounded-full shrink-0"
-                aria-label="Close player"
-              >
-                <Icon name="close" className="w-4 h-4 text-zinc-400" />
-              </button>
-            </div>
-          </div>
-        </div>
+        <PodcastMiniBar
+          playing={playing}
+          isPlaying={isPlaying}
+          currentTime={currentTime}
+          duration={duration}
+          onExpand={onExpand}
+          onTogglePlay={togglePlay}
+          onClose={onClose}
+        />
       )}
     </>
   );

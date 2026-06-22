@@ -1,6 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { PlayerMode, PlayingItem } from '../components/player/PodcastPlayer.js';
-import type { PodcastBundle, PodcastEpisode } from '../types/index.js';
+import type { PlayerMode, PlayingItem, PodcastBundle, PodcastEpisode } from '../types/index.js';
 
 export interface UsePodcastPlayerResult {
   playing: PlayingItem | null;

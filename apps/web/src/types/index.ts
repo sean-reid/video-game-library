@@ -97,6 +97,16 @@ export interface PodcastBundle {
   error?: string;
 }
 
+// Player-state types live up here (not in the player component) so the
+// `usePodcastPlayer` hook doesn't have to import from a component file -
+// that direction was the audit's leaky-types finding.
+export interface PlayingItem {
+  pod: PodcastBundle;
+  episode: PodcastEpisode;
+}
+
+export type PlayerMode = 'expanded' | 'mini';
+
 export interface EventItem {
   id: string;
   type: EventType;
