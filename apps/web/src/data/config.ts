@@ -15,13 +15,6 @@ export const WORKER_BASE: string =
   (import.meta.env.VITE_WORKER_URL as string | undefined) ??
   'https://vgl-news.danrstaton.workers.dev';
 
-// RAWG access. The client-side key here is a known security issue and gets
-// retired in the security-hardening phase when all RAWG calls move through
-// the worker's /rawg/* proxy. Kept for parity with the legacy single-file
-// app while components are still being extracted.
-export const RAWG_KEY = '3be9c7521f9649109c0216049bcf7049';
-export const RAWG_BASE = 'https://api.rawg.io/api';
-
 // TTLs and floors used by client-side caches.
 export const NEWS_STALE_MS = 30 * 60 * 1000; // 30 min
 export const RECS_TTL_MS = 24 * 60 * 60 * 1000; // 24 h

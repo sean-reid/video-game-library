@@ -1,11 +1,8 @@
 import { REC_METACRITIC_FLOOR, WORKER_BASE } from '../data/config.js';
 import { PLATFORM_SHORT, RAWG_PLATFORM_IDS } from '../data/platforms.js';
 
-// All RAWG traffic now goes through the worker's /rawg/* proxy. The
-// historical RAWG_KEY in data/config.js stays for one more phase so a hot
-// rollback (e.g. proxy outage) can flip back to direct calls without a code
-// change; security-hardening removes it for good once the worker has shipped
-// to prod for a release cycle.
+// All RAWG traffic goes through the worker's /rawg/* proxy; the upstream API
+// key lives only as a Cloudflare secret, never in client bundles.
 const RAWG_PROXY_BASE = `${WORKER_BASE}/rawg`;
 
 export const yearOf = (released: string | null | undefined): number | null => {
