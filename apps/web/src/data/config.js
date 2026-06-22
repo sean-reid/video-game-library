@@ -5,6 +5,7 @@ export const GIST_KEY = 'vgl.gistSync.v1';
 export const READ_KEY = 'vgl.readArticles.v1';
 export const DISMISSED_KEY = 'vgl.dismissedBanners.v1';
 export const RECS_KEY = 'vgl.recs.v1';
+export const NEWS_CACHE_KEY = 'vgl.news.v2';
 
 // External endpoints. WORKER_BASE is overridable via VITE_WORKER_URL at
 // build time so dev builds can hit the dev worker without code changes.
