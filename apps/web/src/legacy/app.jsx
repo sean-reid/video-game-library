@@ -8,14 +8,7 @@ import {
   RECS_TTL_MS,
   STORAGE_KEY,
 } from '../data/config.js';
-import {
-  CATEGORIES,
-  MONTH_TO_NUM,
-  MONTHS,
-  SEASON_OFFSETS,
-  STATE_META,
-  TIER_COLOR_FOR_LABEL,
-} from '../data/constants.js';
+import { CATEGORIES, STATE_META, TIER_COLOR_FOR_LABEL } from '../data/constants.js';
 import { PLATFORM_PRIORITY, RAWG_PLATFORM_IDS } from '../data/platforms.js';
 import { SEED_GAMES } from '../data/seed.js';
 import {
@@ -47,6 +40,14 @@ import {
   parseChapters,
 } from '../services/youtubeApi.ts';
 import {
+  freshnessLabel,
+  parseExpected,
+  parseLocalDate,
+  shortDateLabel,
+  timeAgo,
+  upcomingSortKey,
+} from '../utils/dateUtils.ts';
+import {
   TIER,
   effectiveCover,
   gradientFor,
@@ -64,77 +65,6 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 // =============================================================================
 
 
-
-const parseExpected = (s) => {
-  if (!s) return { sortKey: 9999, label: 'TBD' };
-  if (s === 'Available') return { sortKey: 0, label: 'Available now' };
-
-  // "M/D/YYYY" or "M/D/YY"
-  const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if (mdy) {
-    const m = parseInt(mdy[1], 10), d = parseInt(mdy[2], 10);
-    let y = parseInt(mdy[3], 10);
-    if (y < 100) y += 2000;
-    return { sortKey: y * 10000 + m * 100 + d, label: `${MONTHS[m-1]} ${d}, ${y}` };
-  }
-  // "M/D" — assume 2026 for legacy seed compatibility
-  const md = s.match(/^(\d{1,2})\/(\d{1,2})$/);
-  if (md) {
-    const m = parseInt(md[1], 10), d = parseInt(md[2], 10);
-    return { sortKey: 2026 * 10000 + m * 100 + d, label: `${MONTHS[m-1]} ${d}, 2026` };
-  }
-
-  // "Month DD, YYYY" / "Month DDth, YYYY" / "Mon DD YYYY"
-  const mdyName = s.match(/^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/);
-  if (mdyName) {
-    const m = MONTH_TO_NUM[mdyName[1].toLowerCase()];
-    if (m) {
-      const d = parseInt(mdyName[2], 10);
-      const y = parseInt(mdyName[3], 10);
-      return { sortKey: y * 10000 + m * 100 + d, label: s };
-    }
-  }
-
-  // "Month YYYY" or "Season YYYY" — e.g., "February 2027", "Fall 2026"
-  const monthOrSeason = s.match(/^([A-Za-z]+)\s+(\d{4})$/);
-  if (monthOrSeason) {
-    const word = monthOrSeason[1].toLowerCase();
-    const y = parseInt(monthOrSeason[2], 10);
-    if (MONTH_TO_NUM[word] != null) {
-      return { sortKey: y * 10000 + MONTH_TO_NUM[word] * 100, label: s };
-    }
-    if (SEASON_OFFSETS[word] != null) {
-      return { sortKey: y * 10000 + SEASON_OFFSETS[word], label: s };
-    }
-  }
-
-  // "H1 YYYY" / "H2 YYYY"
-  const h = s.match(/^H(\d)\s+(\d{4})$/);
-  if (h) return { sortKey: parseInt(h[2]) * 10000 + (h[1] === '1' ? 300 : 900), label: s };
-
-  // "Q1 YYYY" through "Q4 YYYY"
-  const q = s.match(/^Q([1-4])\s+(\d{4})$/);
-  if (q) {
-    const qn = parseInt(q[1], 10);
-    const y = parseInt(q[2], 10);
-    return { sortKey: y * 10000 + ((qn - 1) * 300 + 200), label: s };
-  }
-
-  // Year only "YYYY"
-  const y = s.match(/^(\d{4})$/);
-  if (y) return { sortKey: parseInt(y[1]) * 10000 + 9999, label: s };
-
-  return { sortKey: 9999, label: s };
-};
-
-// Effective sort key for upcoming games — falls back to game.year when
-// the expectedDate string doesn't parse, so a free-form date plus a year
-// still lands in the right bucket.
-const upcomingSortKey = (game) => {
-  const { sortKey } = parseExpected(game.expectedDate);
-  if (sortKey === 9999 && game.year) return game.year * 10000 + 9999;
-  return sortKey;
-};
 
 const loadGames = () => {
   try {
@@ -327,20 +257,6 @@ const Icon = ({ name, className = 'w-5 h-5', style, filled }) => {
 // GAME CARD (grid view)
 // =============================================================================
 // Short date label for Upcoming card badge (e.g. "Jun 25", "Fall '26", "2027", "Now")
-const shortDateLabel = (s) => {
-  if (!s) return '';
-  if (s === 'Available') return 'Now';
-  const md = s.match(/^(\d{1,2})\/(\d{1,2})$/);
-  if (md) return `${MONTHS[parseInt(md[1])-1]} ${parseInt(md[2])}`;
-  const h1 = s.match(/^H(\d)\s+(\d{4})$/);
-  if (h1) return `H${h1[1]} '${h1[2].slice(2)}`;
-  const season = s.match(/^(Spring|Summer|Fall|Winter)\s+(\d{4})$/);
-  if (season) return `${season[1]} '${season[2].slice(2)}`;
-  const y = s.match(/^(\d{4})$/);
-  if (y) return y[1];
-  return s;
-};
-
 
 const GameCard = ({ game, onClick }) => {
   const tier = game.rating ? TIER(game.rating.total) : null;
@@ -2625,41 +2541,6 @@ const SOURCE_COLORS = {
   'Kotaku':              '#f59e0b',
 };
 
-const timeAgo = (iso) => {
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const diff = Math.max(0, now - then);
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
-};
-
-// Parse a YYYY-MM-DD string as LOCAL midnight (not UTC) so we don't lose a
-// day to timezone offsets.
-const parseLocalDate = (iso) => {
-  if (!iso) return null;
-  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return new Date(iso);
-  return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
-};
-
-// "TODAY" / "YESTERDAY" / "2 DAYS AGO" / "MAY 23"
-const freshnessLabel = (iso) => {
-  if (!iso) return '';
-  const d = parseLocalDate(iso);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const that = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const days = Math.floor((today.getTime() - that.getTime()) / 86400000);
-  if (days < 0) return 'UPCOMING';
-  if (days === 0) return 'TODAY';
-  if (days === 1) return 'YESTERDAY';
-  if (days < 7) return `${days} DAYS AGO`;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
-};
 
 const freshnessPulse = (iso) => {
   const d = parseLocalDate(iso);
