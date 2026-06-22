@@ -46,6 +46,12 @@ import {
   searchRawg,
   yearOf,
 } from '../services/rawgApi.ts';
+import {
+  extractYouTubeId,
+  formatPlayerTime,
+  loadYouTubeApi,
+  parseChapters,
+} from '../services/youtubeApi.ts';
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -2864,65 +2870,6 @@ const PodcastListSheet = ({ open, pod, onClose, onPlay }) => {
 // Media Session handlers are best-effort; note that iOS Safari/PWA does NOT
 // keep a YouTube iframe playing once the screen locks — that's a platform wall.
 // =============================================================================
-const extractYouTubeId = (url) => {
-  if (!url) return null;
-  const m = url.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{11})/);
-  return m ? m[1] : null;
-};
-
-const formatPlayerTime = (s) => {
-  if (!isFinite(s) || s < 0) return '0:00';
-  const total = Math.floor(s);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const sec = total % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-  return `${m}:${String(sec).padStart(2, '0')}`;
-};
-
-// Parse chapter timestamps out of a YouTube video description. Matches lines
-// that start with a timestamp (m:ss / mm:ss / h:mm:ss), optionally wrapped in
-// parens, followed by a label. Needs ≥2 to count as a real chapter list.
-const parseChapters = (description) => {
-  if (!description) return [];
-  const out = [];
-  for (const rawLine of description.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    const m = line.match(/^\(?(\d{1,2}):(\d{2})(?::(\d{2}))?\)?\s*[-–—:.)\]]*\s*(\S.*)$/);
-    if (!m) continue;
-    let secs;
-    if (m[3] !== undefined) secs = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]);
-    else secs = (+m[1]) * 60 + (+m[2]);
-    const label = m[4].trim().replace(/\s{2,}/g, ' ');
-    if (label) out.push({ time: secs, label });
-  }
-  // De-dup by timestamp (keep first), sort ascending
-  const seen = new Set();
-  const deduped = out.filter(c => (seen.has(c.time) ? false : seen.add(c.time)));
-  deduped.sort((a, b) => a.time - b.time);
-  return deduped.length >= 2 ? deduped.slice(0, 80) : [];
-};
-
-// Loads the YouTube IFrame API exactly once; returns a promise that resolves
-// when window.YT.Player is callable.
-let ytApiPromise = null;
-const loadYouTubeApi = () => {
-  if (ytApiPromise) return ytApiPromise;
-  ytApiPromise = new Promise((resolve) => {
-    if (window.YT && window.YT.Player) return resolve();
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    tag.id = 'yt-iframe-api';
-    document.body.appendChild(tag);
-    // YouTube calls onYouTubeIframeAPIReady globally
-    const prev = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => {
-      if (typeof prev === 'function') prev();
-      resolve();
-    };
-  });
-  return ytApiPromise;
-};
 
 const SKIP_SECONDS = 15;
 
