@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Game } from '../../types/index.js';
+import { ConfirmPanel } from '../common/ConfirmPanel.js';
 import { GameForm } from '../forms/GameForm.js';
 import { blankForm, formFromGame, formToGame } from '../forms/gameFormState.js';
 import { Sheet } from './Sheet.js';
@@ -14,9 +15,11 @@ interface EditGameSheetProps {
 
 export function EditGameSheet({ open, game, onClose, onSave, onDelete }: EditGameSheetProps) {
   const [form, setForm] = useState(blankForm);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     if (open && game) setForm(formFromGame(game));
+    if (!open) setConfirmingDelete(false);
   }, [open, game]);
 
   if (!game) return null;
@@ -26,35 +29,54 @@ export function EditGameSheet({ open, game, onClose, onSave, onDelete }: EditGam
     onSave(formToGame(form, game.id));
     onClose();
   };
-  const handleDelete = (): void => {
-    if (window.confirm(`Delete "${game.title}"? This cannot be undone.`)) {
-      onDelete(game.id);
-      onClose();
-    }
+  const confirmDelete = (): void => {
+    setConfirmingDelete(true);
+  };
+  const cancelDelete = (): void => {
+    setConfirmingDelete(false);
+  };
+  const reallyDelete = (): void => {
+    onDelete(game.id);
+    onClose();
   };
 
   return (
     <Sheet
       open={open}
       onClose={onClose}
-      title="Edit game"
+      title={confirmingDelete ? 'Delete game' : 'Edit game'}
       leftAction={
-        <button type="button" onClick={onClose} className="text-zinc-400 text-[14px]">
-          Cancel
-        </button>
+        confirmingDelete ? null : (
+          <button type="button" onClick={onClose} className="text-zinc-400 text-[14px]">
+            Cancel
+          </button>
+        )
       }
       rightAction={
-        <button
-          type="button"
-          onClick={handleSave}
-          className="text-[14px] font-semibold"
-          style={{ color: '#d4a574' }}
-        >
-          Save
-        </button>
+        confirmingDelete ? null : (
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={!form.title.trim()}
+            className="text-[14px] font-semibold disabled:opacity-40"
+            style={{ color: '#d4a574' }}
+          >
+            Save
+          </button>
+        )
       }
     >
-      <GameForm form={form} setForm={setForm} onDelete={handleDelete} />
+      {confirmingDelete ? (
+        <ConfirmPanel
+          title={`Delete "${game.title}"?`}
+          body="This removes the game from your library. The action cannot be undone, though a connected Gist backup keeps a copy you can restore from."
+          confirmLabel="Delete"
+          onConfirm={reallyDelete}
+          onCancel={cancelDelete}
+        />
+      ) : (
+        <GameForm form={form} setForm={setForm} onDelete={confirmDelete} />
+      )}
     </Sheet>
   );
 }

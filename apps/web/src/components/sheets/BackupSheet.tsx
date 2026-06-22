@@ -3,11 +3,13 @@ import type { UseGistVaultResult } from '../../hooks/useGistVault.js';
 import { createGist, fetchGistLibrary, updateGist } from '../../services/gistApi.js';
 import type { Game } from '../../types/index.js';
 import { timeAgo } from '../../utils/dateUtils.js';
+import { ConfirmPanel } from '../common/ConfirmPanel.js';
 import { Icon } from '../common/Icon.js';
 import { Sheet } from './Sheet.js';
 
 type ConnectMode = 'new' | 'existing';
 type BusyAction = '' | 'setup' | 'connect' | 'sync' | 'restore' | 'unlock';
+type PendingConfirm = 'connectExisting' | 'restore' | 'disconnect';
 
 interface BackupSheetProps {
   open: boolean;
@@ -40,6 +42,7 @@ export function BackupSheet({
   const [busyAction, setBusyAction] = useState<BusyAction>('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -50,6 +53,7 @@ export function BackupSheet({
       setPassphraseInput('');
       setUnlockPassphrase('');
       setConnectMode('new');
+      setPendingConfirm(null);
     }
   }, [open]);
 
@@ -82,18 +86,18 @@ export function BackupSheet({
     }
   };
 
+  const requestConnectExisting = (): void => {
+    const token = tokenInput.trim();
+    const id = gistIdInput.trim();
+    if (!token || !id || passphraseInput.length < 8) return;
+    setPendingConfirm('connectExisting');
+  };
   const connectExisting = async (): Promise<void> => {
+    setPendingConfirm(null);
     const token = tokenInput.trim();
     const id = gistIdInput.trim();
     const passphrase = passphraseInput;
     if (!token || !id || passphrase.length < 8) return;
-    if (
-      !window.confirm(
-        `Replace your local library with the version stored in Gist ${id.slice(0, 8)}…? Your current local data will be lost (export first if you want a safety copy).`,
-      )
-    ) {
-      return;
-    }
     setBusy(true);
     setBusyAction('connect');
     setError(null);
@@ -154,15 +158,13 @@ export function BackupSheet({
     }
   };
 
-  const restore = async (): Promise<void> => {
+  const requestRestore = (): void => {
     if (!unlocked) return;
-    if (
-      !window.confirm(
-        'Replace your local library with the version stored in your Gist? Your current local data will be lost (export first if you want a safety copy).',
-      )
-    ) {
-      return;
-    }
+    setPendingConfirm('restore');
+  };
+  const restore = async (): Promise<void> => {
+    setPendingConfirm(null);
+    if (!unlocked) return;
     setBusy(true);
     setBusyAction('restore');
     setError(null);
@@ -180,14 +182,11 @@ export function BackupSheet({
     }
   };
 
+  const requestDisconnect = (): void => {
+    setPendingConfirm('disconnect');
+  };
   const handleDisconnect = (): void => {
-    if (
-      !window.confirm(
-        'Disconnect Gist sync? Your Gist will remain on GitHub but the app will stop syncing to it. You can reconnect anytime.',
-      )
-    ) {
-      return;
-    }
+    setPendingConfirm(null);
     disconnect();
     setSuccess('Disconnected.');
   };
@@ -204,6 +203,47 @@ export function BackupSheet({
   const setupDisabled = busy || !tokenInput.trim() || passphraseInput.length < 8;
   const connectDisabled =
     busy || !tokenInput.trim() || !gistIdInput.trim() || passphraseInput.length < 8;
+
+  if (pendingConfirm) {
+    const confirms = {
+      connectExisting: {
+        title: 'Connect to existing Gist?',
+        body: `Replace your local library with the version stored in Gist ${gistIdInput.trim().slice(0, 8)}… on connect. Your current local data will be lost. Export first if you want a safety copy.`,
+        confirmLabel: 'Connect & restore',
+        onConfirm: () => {
+          void connectExisting();
+        },
+      },
+      restore: {
+        title: 'Restore from Gist?',
+        body: 'Replace your local library with the version stored in your Gist. Your current local data will be lost. Export first if you want a safety copy.',
+        confirmLabel: 'Restore',
+        onConfirm: () => {
+          void restore();
+        },
+      },
+      disconnect: {
+        title: 'Disconnect Gist sync?',
+        body: 'Your Gist will remain on GitHub but the app will stop syncing to it. You can reconnect anytime.',
+        confirmLabel: 'Disconnect',
+        onConfirm: handleDisconnect,
+      },
+    } as const;
+    const c = confirms[pendingConfirm];
+    return (
+      <Sheet open={open} onClose={onClose} title={c.title}>
+        <ConfirmPanel
+          title={c.title}
+          body={c.body}
+          confirmLabel={c.confirmLabel}
+          onConfirm={c.onConfirm}
+          onCancel={() => {
+            setPendingConfirm(null);
+          }}
+        />
+      </Sheet>
+    );
+  }
 
   return (
     <Sheet
@@ -292,9 +332,7 @@ export function BackupSheet({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        void restore();
-                      }}
+                      onClick={requestRestore}
                       disabled={busy}
                       className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-[12px] font-medium disabled:opacity-50"
                     >
@@ -310,7 +348,7 @@ export function BackupSheet({
                     </button>
                     <button
                       type="button"
-                      onClick={handleDisconnect}
+                      onClick={requestDisconnect}
                       disabled={busy}
                       className="px-3 py-1.5 rounded-full text-[12px] font-medium text-red-300 hover:bg-red-500/10 disabled:opacity-50"
                     >
@@ -400,9 +438,7 @@ export function BackupSheet({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => {
-                      void connectExisting();
-                    }}
+                    onClick={requestConnectExisting}
                     disabled={connectDisabled}
                     className="w-full py-2 rounded-xl bg-white text-ink-950 text-[13px] font-semibold disabled:opacity-40"
                   >
