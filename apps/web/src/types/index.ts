@@ -48,6 +48,8 @@ export interface Game {
   rawgPlatforms?: string[];
   rawgPlaytime?: number | null;
   rawgGenres?: string[];
+  rawgDevelopers?: string[];
+  rawgPublishers?: string[];
   rawgMetacritic?: number | null;
   // For rumored/upcoming games where the exact release isn't pinned down.
   expectedDate?: string;

@@ -16,11 +16,9 @@ interface CoverFlowRowProps<T> {
 // the row's left edge is the "focused" one (flat, full size). Cards to its
 // right are tilted inward and stacked back. Snap-scroll lands each card
 // flush with the left.
-export function CoverFlowRow<T extends { id?: string | number | null }>(
-  props: CoverFlowRowProps<T>,
-) {
+export function CoverFlowRow<T extends object>(props: CoverFlowRowProps<T>) {
   const { items, renderItem, cardWidth = 168, flowKey } = props;
-  const idKey = props.idKey ?? ('id');
+  const idKey = (props.idKey ?? 'id') as keyof T & string;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});

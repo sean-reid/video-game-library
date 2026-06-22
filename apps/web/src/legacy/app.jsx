@@ -4,8 +4,6 @@ import {
   DISMISSED_KEY,
   NEWS_STALE_MS,
   READ_KEY,
-  RECS_KEY,
-  RECS_TTL_MS,
   STORAGE_KEY,
 } from '../data/config.js';
 import { CATEGORIES, STATE_META, TIER_COLOR_FOR_LABEL } from '../data/constants.js';
@@ -18,13 +16,7 @@ import {
   loadCachedNews,
   saveCachedNews,
 } from '../services/newsApi.ts';
-import {
-  fetchRawgDetail,
-  fetchRecommendations,
-  searchRawg,
-  searchRawgList,
-  yearOf,
-} from '../services/rawgApi.ts';
+import { searchRawg, searchRawgList, yearOf } from '../services/rawgApi.ts';
 import {
   extractYouTubeId,
   formatPlayerTime,
@@ -36,6 +28,7 @@ import { AddGameSheet } from '../components/sheets/AddGameSheet.tsx';
 import { BackupSheet } from '../components/sheets/BackupSheet.tsx';
 import { PlayedView } from '../components/views/PlayedView.tsx';
 import { PlayingView } from '../components/views/PlayingView.tsx';
+import { RecommendedView } from '../components/views/RecommendedView.tsx';
 import { RumoredView } from '../components/views/RumoredView.tsx';
 import { Top50View } from '../components/views/Top50View.tsx';
 import { UpcomingView } from '../components/views/UpcomingView.tsx';
@@ -60,7 +53,6 @@ import { TextInput } from '../components/forms/inputs/TextInput.tsx';
 import { Toggle } from '../components/forms/inputs/Toggle.tsx';
 import { HeadlineCard, SOURCE_COLORS } from '../components/cards/HeadlineCard.tsx';
 import { PodcastCard } from '../components/cards/PodcastCard.tsx';
-import { RecCandidateCard } from '../components/cards/RecCandidateCard.tsx';
 import { CompletionBars } from '../components/charts/CompletionBars.tsx';
 import { PredictivenessRadar } from '../components/charts/PredictivenessRadar.tsx';
 import { RatingBreakdown } from '../components/charts/RatingBreakdown.tsx';
@@ -153,290 +145,6 @@ const rerankTop50 = (games) => {
     newRanks.has(g.id) ? { ...g, topListRank: newRanks.get(g.id) } : g
   );
 };
-
-// =============================================================================
-// RECOMMENDATIONS — "For you" engine
-// Builds a taste profile from the library (platforms by score sum, devs/
-// publishers by Top 50 presence, genres by score sum) and queries RAWG for
-// high-Metacritic candidates that match the profile. Results are cached and
-// filtered against owned + dismissed sets at render time.
-// =============================================================================
-const loadRecs = () => {
-  try {
-    const raw = localStorage.getItem(RECS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return {
-        fetchedAt: parsed.fetchedAt || 0,
-        candidates: parsed.candidates || [],
-        dismissedIds: parsed.dismissedIds || [],
-      };
-    }
-  } catch {}
-  return { fetchedAt: 0, candidates: [], dismissedIds: [] };
-};
-const saveRecs = (recs) => {
-  try { localStorage.setItem(RECS_KEY, JSON.stringify(recs)); } catch {}
-};
-
-const topN = (weights, n) =>
-  Object.entries(weights)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, n)
-    .map(([k]) => k);
-
-const buildTasteProfile = (games) => {
-  const platformWeights = {};
-  const genreWeights = {};
-  const developerWeights = {};
-  const publisherWeights = {};
-
-  games.forEach(g => {
-    const score = g.rating?.total || 0;
-    const isTop50 = g.topListRank != null;
-
-    if ((g.state === 'played' || g.state === 'playing') && score > 0) {
-      const plat = primaryPlatform(g);
-      if (plat) platformWeights[plat] = (platformWeights[plat] || 0) + score;
-    }
-
-    if (score > 0 && Array.isArray(g.rawgGenres)) {
-      g.rawgGenres.forEach(slug => {
-        genreWeights[slug] = (genreWeights[slug] || 0) + score + (isTop50 ? 50 : 0);
-      });
-    }
-
-    if (Array.isArray(g.rawgDevelopers)) {
-      g.rawgDevelopers.forEach(slug => {
-        developerWeights[slug] = (developerWeights[slug] || 0) + 1 + (isTop50 ? 3 : 0);
-      });
-    }
-    if (Array.isArray(g.rawgPublishers)) {
-      g.rawgPublishers.forEach(slug => {
-        publisherWeights[slug] = (publisherWeights[slug] || 0) + 1 + (isTop50 ? 3 : 0);
-      });
-    }
-  });
-
-  return {
-    platformWeights, genreWeights, developerWeights, publisherWeights,
-    topPlatforms:   topN(platformWeights, 5),
-    topGenres:      topN(genreWeights, 4),
-    topDevelopers:  topN(developerWeights, 6),
-    topPublishers:  topN(publisherWeights, 6),
-  };
-};
-
-// One-time backfill: Top 50 games need devs/publishers for the profile.
-// Pulls /games/{id} detail per game and patches them in. Callers should
-// pace this — we await each call before the next.
-const enrichTop50Detail = async (games, applyPatch) => {
-  const targets = games.filter(g =>
-    g.topListRank != null && g.rawgId &&
-    (!Array.isArray(g.rawgDevelopers) || !Array.isArray(g.rawgPublishers))
-  );
-  for (const g of targets) {
-    try {
-      const detail = await fetchRawgDetail(g.rawgId);
-      applyPatch(g.id, {
-        rawgDevelopers: (detail.developers || []).map(d => d.slug).filter(Boolean),
-        rawgPublishers: (detail.publishers || []).map(p => p.slug).filter(Boolean),
-        rawgGenres: (detail.genres || []).map(genre => genre.slug).filter(Boolean),
-        rawgMetacritic: detail.metacritic || null,
-      });
-    } catch (e) {
-      console.warn('RAWG detail miss for', g.title, e.message);
-    }
-    await new Promise(r => setTimeout(r, 80));
-  }
-  return targets.length;
-};
-
-
-// =============================================================================
-// ICONS
-// =============================================================================
-
-
-
-// Convert a RAWG candidate into a library Game with state='recommended'
-const candidateToGame = (c) => ({
-  id: c.rawgId ? `rawg-${c.rawgId}` : `manual-${Date.now()}`,
-  title: c.title,
-  state: 'recommended',
-  notes: '',
-  coverImage: c.coverImage || null,
-  rawgId: c.rawgId,
-  rawgReleased: c.released || null,
-  rawgPlatforms: c.platforms || [],
-  rawgPlaytime: c.playtime || null,
-  rawgGenres: c.genres || [],
-  rawgMetacritic: c.metacritic || null,
-  rawgChecked: true,
-  year: c.year || undefined,
-});
-
-const RecommendedView = ({ games, onSelect, addGame, applyPatchToGame }) => {
-  const savedList = useMemo(() => {
-    const ls = games.filter(g => g.state === 'recommended');
-    ls.sort((a, b) => (primaryYear(b) || 0) - (primaryYear(a) || 0));
-    return ls;
-  }, [games]);
-
-  const [recsState, setRecsState] = useState(loadRecs);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [activeCandidate, setActiveCandidate] = useState(null);
-  const refreshStartedRef = useRef(false);
-
-  const ownedRawgIds = useMemo(
-    () => new Set(games.map(g => g.rawgId).filter(Boolean)),
-    [games]
-  );
-  const dismissedSet = useMemo(
-    () => new Set(recsState.dismissedIds),
-    [recsState.dismissedIds]
-  );
-
-  const forYou = useMemo(() =>
-    recsState.candidates
-      .filter(c => !ownedRawgIds.has(c.rawgId) && !dismissedSet.has(c.rawgId))
-      .slice(0, 20),
-    [recsState.candidates, ownedRawgIds, dismissedSet]
-  );
-
-  const refresh = async () => {
-    if (loading) return;
-    setLoading(true);
-    setError(null);
-    try {
-      // One-time backfill of dev/publisher detail for Top 50 (free for repeat visits)
-      await enrichTop50Detail(games, applyPatchToGame);
-      // buildTasteProfile reads from `games` prop; since applyPatchToGame
-      // mutates state asynchronously, we re-read from latest source by
-      // refetching from window storage as a safety net.
-      let liveGames = games;
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) liveGames = JSON.parse(raw);
-      } catch {}
-      const profile = buildTasteProfile(liveGames);
-      const candidates = await fetchRecommendations(profile);
-      const next = { ...recsState, fetchedAt: Date.now(), candidates };
-      setRecsState(next);
-      saveRecs(next);
-    } catch (e) {
-      setError(e.message || 'Could not load recommendations');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Auto-refresh on first mount if cache is empty or stale
-  useEffect(() => {
-    if (refreshStartedRef.current) return;
-    refreshStartedRef.current = true;
-    const stale = !recsState.fetchedAt || (Date.now() - recsState.fetchedAt > RECS_TTL_MS);
-    if (stale || recsState.candidates.length === 0) {
-      refresh();
-    }
-  }, []);
-
-  const handleSave = () => {
-    if (!activeCandidate) return;
-    const g = candidateToGame(activeCandidate);
-    if (!ownedRawgIds.has(g.rawgId)) addGame(g);
-    setActiveCandidate(null);
-  };
-  const handleDismiss = () => {
-    if (!activeCandidate) return;
-    const next = {
-      ...recsState,
-      dismissedIds: [...new Set([...recsState.dismissedIds, activeCandidate.rawgId])],
-    };
-    setRecsState(next);
-    saveRecs(next);
-    setActiveCandidate(null);
-  };
-
-  const lastFetchedLabel = recsState.fetchedAt
-    ? new Date(recsState.fetchedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    : '';
-
-  return (
-    <div className="space-y-5 pb-32">
-      {/* FOR YOU — RAWG-driven */}
-      <div>
-        <div className="flex items-end justify-between px-5 mb-1">
-          <div className="serif text-[22px]" style={{ color: '#d4a574' }}>
-            For you
-            {forYou.length > 0 && (
-              <span className="text-zinc-500 text-[14px] ml-2 tabular-nums">{forYou.length}</span>
-            )}
-          </div>
-          <button
-            onClick={refresh}
-            disabled={loading}
-            className="glass-light rounded-full px-3 py-1 text-[11px] uppercase tracking-wider text-zinc-300 font-medium disabled:opacity-50"
-          >
-            {loading ? 'Loading…' : (lastFetchedLabel ? `Refresh · ${lastFetchedLabel}` : 'Refresh')}
-          </button>
-        </div>
-        {error && (
-          <div className="px-5 text-[12px] text-rose-300/80">{error}</div>
-        )}
-        {loading && forYou.length === 0 ? (
-          <div className="px-5 py-6 text-[12px] text-zinc-500">
-            Reading your library… fetching matching games from RAWG.
-          </div>
-        ) : forYou.length === 0 ? (
-          <div className="px-5 text-[12px] text-zinc-500">
-            {error ? '' : 'No matches yet — rate more games to build a profile.'}
-          </div>
-        ) : (
-          <CoverFlowRow
-            items={forYou}
-            idKey="rawgId"
-            renderItem={c => (
-              <RecCandidateCard candidate={c} onClick={() => setActiveCandidate(c)} />
-            )}
-            flowKey="recs-foryou"
-          />
-        )}
-      </div>
-
-      {/* SAVED FOR LATER — existing manual list */}
-      <div>
-        <div className="serif text-[22px] mb-1 px-5" style={{ color: '#d4a574' }}>
-          Saved for later
-          {savedList.length > 0 && (
-            <span className="text-zinc-500 text-[14px] ml-2 tabular-nums">{savedList.length}</span>
-          )}
-        </div>
-        {savedList.length === 0 ? (
-          <div className="px-5 text-[12px] text-zinc-500">
-            Tap a "For you" card to save it here.
-          </div>
-        ) : (
-          <CoverFlowRow
-            items={savedList}
-            renderItem={g => <GameCard game={g} onClick={() => onSelect(g)} />}
-            flowKey="recs-saved"
-          />
-        )}
-      </div>
-
-      <RecActionSheet
-        candidate={activeCandidate}
-        onClose={() => setActiveCandidate(null)}
-        onSave={handleSave}
-        onDismiss={handleDismiss}
-      />
-    </div>
-  );
-};
-
-
 // =============================================================================
 // RECENT-RELEASE BANNER
 // Surfaces tracked games whose release date has passed in the last 14 days.
