@@ -143,6 +143,18 @@ export function PodcastPlayer({
         events: {
           onReady: (e: YTReadyEvent) => {
             if (cancelled) return;
+            // Lock down the iframe YouTube just mounted. sandbox blocks
+            // top-frame navigation and popups; allow restricts powerful
+            // feature-policy grants to the bare minimum the player needs.
+            const iframe = hostRef.current?.querySelector('iframe');
+            if (iframe) {
+              iframe.setAttribute(
+                'sandbox',
+                'allow-scripts allow-same-origin allow-presentation',
+              );
+              iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+              iframe.setAttribute('referrerpolicy', 'origin');
+            }
             setIsReady(true);
             setDuration(e.target.getDuration() || 0);
             try {
