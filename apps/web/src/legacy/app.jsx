@@ -1,6 +1,19 @@
 import React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import {
+  DISMISSED_KEY,
+  GIST_KEY,
+  NEWS_STALE_MS,
+  RAWG_BASE,
+  RAWG_KEY,
+  READ_KEY,
+  REC_METACRITIC_FLOOR,
+  RECS_KEY,
+  RECS_TTL_MS,
+  STORAGE_KEY,
+  WORKER_BASE,
+} from '../data/config.js';
+import {
   CATEGORIES,
   MONTH_TO_NUM,
   MONTHS,
@@ -118,7 +131,6 @@ const upcomingSortKey = (game) => {
   return sortKey;
 };
 
-const STORAGE_KEY = 'vgl.games.v4';
 const loadGames = () => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -168,9 +180,6 @@ const rerankTop50 = (games) => {
 // Worst case if scraped: someone burns your 20k/month free quota → rotate.
 // If/when that matters, move behind a Cloudflare Worker.
 // =============================================================================
-const RAWG_KEY = '3be9c7521f9649109c0216049bcf7049';
-const RAWG_BASE = 'https://api.rawg.io/api';
-
 const yearOf = (released) => {
   if (!released) return null;
   const y = parseInt(String(released).slice(0, 4), 10);
@@ -229,10 +238,6 @@ const fetchRawgDetail = async (rawgId) => {
 // high-Metacritic candidates that match the profile. Results are cached and
 // filtered against owned + dismissed sets at render time.
 // =============================================================================
-const RECS_KEY = 'vgl.recs.v1';
-const RECS_TTL_MS = 24 * 60 * 60 * 1000; // 24h
-const REC_METACRITIC_FLOOR = 75;
-
 const loadRecs = () => {
   try {
     const raw = localStorage.getItem(RECS_KEY);
@@ -2433,7 +2438,6 @@ const exportLibrary = (games) => {
 // Token + gist ID live in localStorage; nothing leaves your phone except
 // the writes to your own GitHub.
 // =============================================================================
-const GIST_KEY = 'vgl.gistSync.v1';
 const GIST_FILENAME = 'video-game-library.json';
 
 const loadGistConfig = () => {
@@ -2725,13 +2729,11 @@ const GameDetailScreen = ({ game, onBack, onEdit, onToggleCompletion, onPrev, on
 // =============================================================================
 // NEWS — fetched live from the Cloudflare Worker
 // =============================================================================
-const WORKER_BASE = 'https://vgl-news.danrstaton.workers.dev';
 const NEWS_URL = `${WORKER_BASE}/news`;
 const ARTICLE_URL = (url) => `${WORKER_BASE}/article?url=${encodeURIComponent(url)}`;
 const NEWS_CACHE_KEY = 'vgl.news.v2';
 
 // Mark-as-read state — persists across sessions
-const READ_KEY = 'vgl.readArticles.v1';
 const loadRead = () => {
   try {
     const raw = localStorage.getItem(READ_KEY);
@@ -2785,7 +2787,6 @@ const normalizeNewsPayload = (payload) => {
 // Loading is initialized to true when there's no cache OR the cache is older
 // than 30 min — the latter keeps the relative-time podcast labels from
 // flashing a stale "N DAYS AGO" for what's actually still last-week's episode.
-const NEWS_STALE_MS = 30 * 60 * 1000;
 const useNews = () => {
   const initialCache = loadCachedNews();
   const initialStale = !initialCache?._cachedAt ||
@@ -2858,8 +2859,7 @@ const matchLibraryGame = (article, games) => {
   return null;
 };
 
-// Dismissed banners persist across sessions
-const DISMISSED_KEY = 'vgl.dismissedBanners.v1';
+// Dismissed banners persist across sessions; key lives in data/config.js.
 const loadDismissed = () => {
   try { return new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY) || '[]')); }
   catch { return new Set(); }
