@@ -9,15 +9,19 @@ const ALLOWED_HOSTS = new Set([
   '127.0.0.1',
   'localhost',
   // Lora + Inter via Google Fonts. These don't change between runs and the
-  // bundled app depends on them for the editorial look; allowing them here
-  // is the minimum needed to keep the rendered text font-correct. PR 2.5
-  // moves font hosting in-bundle and lets us drop this exception.
+  // bundled app depends on them for the editorial look. PR 2.5 moves font
+  // hosting in-bundle and lets us drop this exception.
   'fonts.googleapis.com',
   'fonts.gstatic.com',
-  // Tailwind CDN — same story. PR 2.4 swaps in a build-time PostCSS
-  // Tailwind and drops this allowance.
-  'cdn.tailwindcss.com',
 ]);
+// RAWG (both api.rawg.io and media.rawg.io) is intentionally NOT in the
+// allowlist. Letting search results through makes baselines flaky: RAWG's
+// best-match for a given title can change as games are relisted, and the
+// order of enrichment completion shifts the rendered cover-flow. The
+// trade-off is gradient-only cards in the screenshots until a follow-up PR
+// adds per-query response fixtures and seeds an already-enriched library
+// into localStorage. Real cover art is visible in the live app via `pnpm
+// --filter @vgl/web dev`.
 
 test.beforeEach(async ({ page }) => {
   // Routes match in REVERSE registration order; register the catch-all
@@ -41,14 +45,19 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-// Inject a stylesheet that suppresses every <img> render. WebKit doesn't
-// always intercept <img> subresource loads via page.route (cached responses
-// can sneak through), so we hide them at the CSS layer instead. The
-// card-gradient fallback is what we want to baseline against anyway since
-// RAWG cover art is non-deterministic across runs.
-async function hideImages(page: Page): Promise<void> {
-  await page.addStyleTag({
-    content: 'img { visibility: hidden !important; }',
+// Hide the "Fetching covers · X of 153" enrichment indicator. Its counter
+// ticks non-deterministically while the legacy enrichment loop runs against
+// the blocked api.rawg.io search endpoint, so masking it is the only way to
+// get stable screenshots. Found by text-content match so it's robust to
+// class-name churn. Images themselves are no longer hidden — media.rawg.io
+// URLs in COVER_OVERRIDES are content-addressed and stable.
+async function hideEnrichmentIndicator(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    for (const el of document.querySelectorAll<HTMLElement>('div')) {
+      if (el.textContent?.startsWith('Fetching covers ·')) {
+        el.style.display = 'none';
+      }
+    }
   });
 }
 
@@ -58,20 +67,14 @@ for (const screen of SCREENS) {
   test(`baseline: ${screen.name}`, async ({ page }) => {
     await page.goto(screen.path);
     await page.waitForSelector(screen.selector);
-    await hideImages(page);
     await page.waitForLoadState('networkidle');
-    // Settle the grain animation + screen-enter transition.
+    // Settle the grain animation + screen-enter transition, then hide the
+    // non-deterministic enrichment indicator just before snapshotting.
     await page.waitForTimeout(500);
-    // Mask the "Fetching covers · X of 153" indicator. It only appears
-    // while the legacy RAWG enrichment loop is running and shows a
-    // non-deterministic in-flight count under our blocked-network mocks.
-    // The loop eventually exhausts the queue, but masking is faster and
-    // robust across browsers regardless of how long the loop takes.
-    const fetchingIndicator = page.getByText(/Fetching covers/);
+    await hideEnrichmentIndicator(page);
     await expect(page).toHaveScreenshot(`${screen.name}.png`, {
       fullPage: false,
       animations: 'disabled',
-      mask: [fetchingIndicator],
     });
   });
 }

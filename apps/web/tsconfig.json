@@ -9,5 +9,11 @@
     "noEmit": true,
     "allowJs": true
   },
-  "include": ["src/**/*", "tests/**/*", "vite.config.ts", "playwright.config.ts"]
+  "include": [
+    "src/**/*",
+    "tests/**/*",
+    "vite.config.ts",
+    "playwright.config.ts",
+    "tailwind.config.ts"
+  ]
 }
