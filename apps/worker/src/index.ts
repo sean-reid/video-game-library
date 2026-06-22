@@ -22,7 +22,7 @@ import { corsHeaders, jsonResponse } from './utils/http';
 export type { Env };
 
 export default {
-  async fetch(request: Request, _env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') {
@@ -35,7 +35,7 @@ export default {
 
     if (url.pathname === '/news') {
       const forceFresh = url.searchParams.has('nocache');
-      return getNews(ctx, forceFresh);
+      return getNews(env, ctx, forceFresh);
     }
 
     if (url.pathname === '/article') {

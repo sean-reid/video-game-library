@@ -1,10 +1,15 @@
 import { ARTICLE_CACHE_TTL_SECONDS, CACHE_TTL_SECONDS } from './config';
+import type { Env } from './env';
 import { buildNewsBundle } from './news-bundle';
 import { parseArticle } from './parsers/article';
 import { fetchText } from './utils/fetch';
 import { jsonResponse } from './utils/http';
 
-export async function getNews(ctx: ExecutionContext, forceFresh: boolean): Promise<Response> {
+export async function getNews(
+  env: Env,
+  ctx: ExecutionContext,
+  forceFresh: boolean,
+): Promise<Response> {
   const cache = caches.default;
   const cacheKey = new Request('https://cache.vgl/news-v1');
 
@@ -16,7 +21,7 @@ export async function getNews(ctx: ExecutionContext, forceFresh: boolean): Promi
     }
   }
 
-  const bundle = await buildNewsBundle();
+  const bundle = await buildNewsBundle(env);
   const response = jsonResponse(bundle);
   response.headers.set('X-Cached-At', String(Date.now()));
   response.headers.set('Cache-Control', `public, max-age=${CACHE_TTL_SECONDS}`);
