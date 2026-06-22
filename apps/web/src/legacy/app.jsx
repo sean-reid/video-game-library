@@ -26,6 +26,7 @@ import {
 import { GameCard } from '../components/cards/GameCard.tsx';
 import { AddGameSheet } from '../components/sheets/AddGameSheet.tsx';
 import { BackupSheet } from '../components/sheets/BackupSheet.tsx';
+import { LibraryScreen } from '../components/screens/LibraryScreen.tsx';
 import { PlayedView } from '../components/views/PlayedView.tsx';
 import { PlayingView } from '../components/views/PlayingView.tsx';
 import { RecommendedView } from '../components/views/RecommendedView.tsx';
@@ -204,90 +205,6 @@ const RecentReleaseBanner = ({ games, onSelect, dismissed, onDismiss }) => {
         );
       })}
     </>
-  );
-};
-
-// =============================================================================
-// LIBRARY SCREEN
-// =============================================================================
-const LibraryScreen = ({ games, onSelect, section, setSection, enrichStatus, onAdd, onOpenBackup, onReorderRumored, savedScrollsRef, tab, onTabChange, addGame, applyPatchToGame }) => {
-  const [query, setQuery] = useState('');
-
-  // Restore scroll positions captured before opening a detail screen
-  useEffect(() => {
-    if (!savedScrollsRef?.current) return;
-    // Two RAFs: first lets layout settle, second lets cover-flow rows mount
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      const s = savedScrollsRef.current;
-      if (!s) return;
-      window.scrollTo(0, s.y);
-      document.querySelectorAll('[data-flowkey]').forEach(el => {
-        const x = s.rows[el.dataset.flowkey];
-        if (x != null) el.scrollLeft = x;
-      });
-      savedScrollsRef.current = null;
-    }));
-  }, []);
-
-  const counts = useMemo(() => ({
-    top50:       games.filter(g => g.topListRank != null).length,
-    playing:     games.filter(g => g.state === 'playing').length,
-    upcoming:    games.filter(g => g.state === 'upcoming').length,
-    rumored:     games.filter(g => g.state === 'rumored').length,
-    recommended: games.filter(g => g.state === 'recommended').length,
-    played:      games.filter(g => g.state === 'played').length,
-  }), [games]);
-
-  // Apply search across the active section
-  const filtered = useMemo(() => {
-    if (!query) return games;
-    return games.filter(g => g.title.toLowerCase().includes(query.toLowerCase()));
-  }, [games, query]);
-
-  return (
-    <div className="screen-enter">
-      <div className="pt-safe">
-        <div className="px-4 pt-5 pb-1 flex items-end justify-between">
-          <TitleNav active={tab} onChange={onTabChange} />
-          <div className="flex items-center gap-1.5">
-            <button onClick={onOpenBackup} className="glass-light rounded-full p-2" aria-label="Backup & data">
-              <Icon name="settings" className="w-4 h-4" />
-            </button>
-            <button onClick={onAdd} className="glass-light rounded-full p-2" aria-label="Add game">
-              <Icon name="plus" className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {enrichStatus?.active && (
-          <div className="px-4 mt-1 text-[11px] text-zinc-500 flex items-center gap-1.5">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-gold animate-pulse" />
-            Fetching covers · {enrichStatus.done} of {enrichStatus.total}
-          </div>
-        )}
-
-        <div className="px-4 pt-4">
-          <div className="glass-light rounded-2xl flex items-center gap-2 px-3.5 py-2.5">
-            <Icon name="search" className="w-4 h-4 text-zinc-400" />
-            <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search your library"
-              className="bg-transparent flex-1 outline-none text-[15px] placeholder-zinc-500"
-            />
-          </div>
-        </div>
-
-        <SectionNav active={section} onChange={setSection} counts={counts} />
-
-        {section === 'top50'       && <Top50View games={filtered} onSelect={onSelect} />}
-        {section === 'playing'     && <PlayingView games={filtered} onSelect={onSelect} />}
-        {section === 'upcoming'    && <UpcomingView games={filtered} onSelect={onSelect} />}
-        {section === 'rumored'     && <RumoredView games={filtered} onSelect={onSelect} onReorder={onReorderRumored} />}
-        {section === 'recommended' && <RecommendedView games={filtered} onSelect={onSelect} addGame={addGame} applyPatchToGame={applyPatchToGame} />}
-        {section === 'played'      && <PlayedView games={filtered} onSelect={onSelect} />}
-      </div>
-    </div>
   );
 };
 
