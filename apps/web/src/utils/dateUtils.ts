@@ -134,6 +134,27 @@ export function parseLocalDate(iso: string | null | undefined): Date | null {
   return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
 }
 
+// Short relative-freshness pulse colour for podcast/news dots. Bright green
+// for today, gold for yesterday, muted grey for anything older.
+export function freshnessPulse(iso: string | null | undefined): string {
+  const d = parseLocalDate(iso);
+  if (!d) return '#71717a';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const that = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const days = Math.floor((today.getTime() - that.getTime()) / 86400000);
+  if (days <= 0) return '#22c55e';
+  if (days === 1) return '#e2b878';
+  return '#71717a';
+}
+
+// "Mon Day" short date for podcast episode rows.
+export function shortDate(iso: string | null | undefined): string {
+  const d = parseLocalDate(iso);
+  if (!d) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 // "TODAY" / "YESTERDAY" / "2 DAYS AGO" / "MAY 23" / "UPCOMING".
 export function freshnessLabel(iso: string | null | undefined): string {
   if (!iso) return '';
