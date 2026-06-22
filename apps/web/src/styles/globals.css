@@ -1,0 +1,190 @@
+html,
+body,
+#root {
+  height: 100%;
+  background: #0a0a0c;
+  color: #f5f5f7;
+}
+body {
+  font-family:
+    'Inter',
+    -apple-system,
+    system-ui,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.serif {
+  font-family: 'Lora', Georgia, serif;
+}
+
+/* Frosted glass — iOS 26 style */
+.glass {
+  background: rgba(20, 20, 26, 0.55);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+.glass-strong {
+  background: rgba(10, 10, 14, 0.65);
+  backdrop-filter: saturate(180%) blur(24px);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  border-top: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+.glass-light {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Hide scrollbar but stay scrollable */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+/* Safe area for iPhone */
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Subtle grain for editorial feel */
+.grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.04 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+  mix-blend-mode: overlay;
+  opacity: 0.5;
+}
+
+/* Smooth transitions for screen changes */
+.screen-enter {
+  animation: screenIn 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes screenIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Chip pulse for active filter */
+.chip-active {
+  background: linear-gradient(180deg, rgba(245, 245, 247, 0.95), rgba(245, 245, 247, 0.85));
+  color: #0a0a0c;
+}
+
+/* Rendered article body — turns raw HTML from the worker into something
+   readable in our dark editorial theme. */
+.article-body {
+  color: #d4d4d8;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.article-body p {
+  margin-bottom: 1.1em;
+}
+.article-body p:last-child {
+  margin-bottom: 0;
+}
+.article-body h1,
+.article-body h2,
+.article-body h3,
+.article-body h4 {
+  font-family: 'Lora', Georgia, serif;
+  color: #f5f5f7;
+  margin: 1.6em 0 0.5em;
+  line-height: 1.25;
+}
+.article-body h1 {
+  font-size: 1.5em;
+}
+.article-body h2 {
+  font-size: 1.3em;
+}
+.article-body h3 {
+  font-size: 1.15em;
+}
+.article-body h4 {
+  font-size: 1.05em;
+}
+.article-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  margin: 1.1em 0;
+  display: block;
+}
+.article-body figure {
+  margin: 1.1em 0;
+}
+.article-body figcaption {
+  font-size: 0.85em;
+  color: #71717a;
+  margin-top: 0.4em;
+  text-align: center;
+}
+.article-body a {
+  color: #d4a574;
+  text-decoration: underline;
+  text-decoration-color: rgba(212, 165, 116, 0.35);
+  text-underline-offset: 2px;
+}
+.article-body blockquote {
+  border-left: 3px solid #d4a574;
+  padding-left: 1em;
+  margin: 1.2em 0;
+  color: #a1a1aa;
+  font-style: italic;
+}
+.article-body ul,
+.article-body ol {
+  padding-left: 1.5em;
+  margin-bottom: 1.1em;
+}
+.article-body li {
+  margin-bottom: 0.5em;
+}
+.article-body strong,
+.article-body b {
+  color: #f5f5f7;
+}
+.article-body em,
+.article-body i {
+  font-style: italic;
+}
+.article-body hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 1.5em 0;
+}
+.article-body pre,
+.article-body code {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 0.15em 0.35em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+}
+.article-body pre {
+  padding: 0.8em 1em;
+  overflow-x: auto;
+  margin: 1.1em 0;
+}
+.article-body iframe {
+  max-width: 100%;
+  border-radius: 12px;
+  margin: 1.1em 0;
+}
