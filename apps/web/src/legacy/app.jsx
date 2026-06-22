@@ -7,7 +7,6 @@ import {
   RECS_KEY,
   RECS_TTL_MS,
   STORAGE_KEY,
-  WORKER_BASE,
 } from '../data/config.js';
 import {
   CATEGORIES,
@@ -35,6 +34,12 @@ import {
   saveGistConfig,
   updateGist,
 } from '../services/gistApi.ts';
+import {
+  fetchArticle,
+  fetchNews,
+  loadCachedNews,
+  saveCachedNews,
+} from '../services/newsApi.ts';
 import {
   fetchRawgDetail,
   fetchRecommendations,
@@ -2549,9 +2554,6 @@ const GameDetailScreen = ({ game, onBack, onEdit, onToggleCompletion, onPrev, on
 // =============================================================================
 // NEWS — fetched live from the Cloudflare Worker
 // =============================================================================
-const NEWS_URL = `${WORKER_BASE}/news`;
-const ARTICLE_URL = (url) => `${WORKER_BASE}/article?url=${encodeURIComponent(url)}`;
-const NEWS_CACHE_KEY = 'vgl.news.v2';
 
 // Mark-as-read state — persists across sessions
 const loadRead = () => {
@@ -2565,43 +2567,6 @@ const saveRead = (set) => {
   try { localStorage.setItem(READ_KEY, JSON.stringify([...set])); } catch {}
 };
 const articleKey = (article) => article?.id || article?.url || '';
-
-// Each podcast show needs a cover gradient (the Worker doesn't supply one) —
-// look it up by show id and fall back to a neutral default.
-const PODCAST_PRESENTATION = {
-  'kinda-funny-games-daily': {
-    accent: '#e2b878',
-    coverGradient: 'linear-gradient(135deg, #c2410c 0%, #7c2d12 100%)',
-  },
-  'kinda-funny-gamescast': {
-    accent: '#a8b4c0',
-    coverGradient: 'linear-gradient(135deg, #0c4a6e 0%, #1e293b 100%)',
-  },
-};
-const podcastPresentation = (id) =>
-  PODCAST_PRESENTATION[id] || {
-    accent: '#a1a1aa',
-    coverGradient: 'linear-gradient(135deg, #27272a 0%, #18181b 100%)',
-  };
-
-const loadCachedNews = () => {
-  try {
-    const raw = localStorage.getItem(NEWS_CACHE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return null;
-};
-const saveCachedNews = (data) => {
-  try { localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify(data)); } catch {}
-};
-
-// Normalize Worker payload — apply podcast presentation gradients/accents,
-// stamp a local fetchedAt so we know how fresh the cached copy is.
-const normalizeNewsPayload = (payload) => {
-  if (!payload) return null;
-  const podcasts = (payload.podcasts || []).map((p) => ({ ...podcastPresentation(p.id), ...p }));
-  return { ...payload, podcasts, _cachedAt: Date.now() };
-};
 
 // React hook: returns { news, loading, error, refresh, lastFetched }
 // Loading is initialized to true when there's no cache OR the cache is older
@@ -2621,11 +2586,7 @@ const useNews = () => {
     setLoading(true);
     setError(null);
     try {
-      const url = forceFresh ? `${NEWS_URL}?nocache=1` : NEWS_URL;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const normalized = normalizeNewsPayload(data);
+      const normalized = await fetchNews(forceFresh);
       setNews(normalized);
       setLastFetched(normalized._cachedAt);
       saveCachedNews(normalized);
@@ -3478,8 +3439,7 @@ const ReaderSheet = ({ open, item, onClose, onMarkRead }) => {
     setArticle(null);
     setArticleError(null);
     setImageFailed(false);
-    fetch(ARTICLE_URL(item.url))
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    fetchArticle(item.url)
       .then((data) => {
         if (data.error) throw new Error(data.error);
         setArticle(data);
