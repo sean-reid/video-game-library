@@ -3,6 +3,7 @@ import { LibraryScreen, type LibrarySection } from './components/screens/Library
 import { AddGameSheet } from './components/sheets/AddGameSheet.js';
 import { BackupSheet } from './components/sheets/BackupSheet.js';
 import { EditGameSheet } from './components/sheets/EditGameSheet.js';
+import { ImportConfirmSheet } from './components/sheets/ImportConfirmSheet.js';
 import type { TopTab } from './components/navigation/TitleNav.js';
 import { useGames } from './hooks/useGames.js';
 import { useGistAutoSync } from './hooks/useGistAutoSync.js';
@@ -10,7 +11,8 @@ import { useGistVault } from './hooks/useGistVault.js';
 import { usePodcastPlayer } from './hooks/usePodcastPlayer.js';
 import { useRawgEnrichment } from './hooks/useRawgEnrichment.js';
 import { hasLegacyGistConfig } from './services/gistApi.js';
-import { exportLibrary, importLibrary } from './services/libraryIO.js';
+import { exportLibrary, pickAndParseLibrary } from './services/libraryIO.js';
+import type { Game } from './types/index.js';
 import { buildNavOrder } from './utils/navOrder.js';
 
 // Heavy screens load on demand. LibraryScreen stays eager because it's the
@@ -91,6 +93,31 @@ export function App() {
   const navIdx = selectedId ? navOrder.indexOf(selectedId) : -1;
   const hasPrev = navIdx > 0;
   const hasNext = navIdx >= 0 && navIdx < navOrder.length - 1;
+
+  // Import flow stages the parsed games in App state and renders an
+  // ImportConfirmSheet; replaces the native window.confirm the file picker
+  // used to drop. The same sheet doubles as the parse-error surface.
+  const [pendingImport, setPendingImport] = useState<Game[] | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const handleImport = (): void => {
+    setBackupOpen(false);
+    void pickAndParseLibrary().then(
+      (games) => {
+        if (games) setPendingImport(games);
+      },
+      (e: unknown) => {
+        setImportError(e instanceof Error ? e.message : String(e));
+      },
+    );
+  };
+  const applyImport = (): void => {
+    if (pendingImport) setGames(pendingImport);
+    setPendingImport(null);
+  };
+  const dismissImportConfirm = (): void => {
+    setPendingImport(null);
+    setImportError(null);
+  };
 
   return (
     <div className="min-h-screen bg-ink-950 text-zinc-100 max-w-md mx-auto relative">
@@ -186,13 +213,18 @@ export function App() {
         onExport={() => {
           exportLibrary(games);
         }}
-        onImport={() => {
-          importLibrary(setGames);
-        }}
+        onImport={handleImport}
         games={games}
         setGames={setGames}
         vault={vault}
         hadLegacyConfig={hadLegacyConfig}
+      />
+      <ImportConfirmSheet
+        open={pendingImport != null || importError != null}
+        count={pendingImport?.length ?? null}
+        error={importError}
+        onConfirm={applyImport}
+        onClose={dismissImportConfirm}
       />
 
       {player.playing && (
