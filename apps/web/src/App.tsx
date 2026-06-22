@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { PodcastPlayer, type PlayerMode, type PlayingItem } from './components/player/PodcastPlayer.js';
+import { PodcastPlayer } from './components/player/PodcastPlayer.js';
 import { GameDetailScreen, buildNavOrder } from './components/screens/GameDetailScreen.js';
 import { LibraryScreen, type LibrarySection } from './components/screens/LibraryScreen.js';
 import { NewsScreen } from './components/screens/NewsScreen.js';
@@ -10,10 +10,11 @@ import { EditGameSheet } from './components/sheets/EditGameSheet.js';
 import type { TopTab } from './components/navigation/TitleNav.js';
 import { useGames } from './hooks/useGames.js';
 import { useGistAutoSync } from './hooks/useGistAutoSync.js';
+import { usePodcastPlayer } from './hooks/usePodcastPlayer.js';
 import { useRawgEnrichment } from './hooks/useRawgEnrichment.js';
 import { loadGistConfig } from './services/gistApi.js';
 import { exportLibrary, importLibrary } from './services/libraryIO.js';
-import type { GistSyncConfig, PodcastBundle, PodcastEpisode } from './types/index.js';
+import type { GistSyncConfig } from './types/index.js';
 
 export function App() {
   const {
@@ -34,16 +35,7 @@ export function App() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [gistConfig, setGistConfig] = useState<GistSyncConfig | null>(loadGistConfig);
 
-  const [playingEpisode, setPlayingEpisode] = useState<PlayingItem | null>(null);
-  const [playerMode, setPlayerMode] = useState<PlayerMode>('expanded');
-  const playEpisode = (pod: PodcastBundle, episode: PodcastEpisode): void => {
-    if (!episode) return;
-    setPlayingEpisode({ pod, episode });
-    setPlayerMode('expanded');
-  };
-  const closePlayer = (): void => {
-    setPlayingEpisode(null);
-  };
+  const player = usePodcastPlayer();
 
   useGistAutoSync(games, gistConfig, setGistConfig);
   const enrichStatus = useRawgEnrichment(games, applyPatchToGame);
@@ -139,7 +131,7 @@ export function App() {
               }}
               tab={tab}
               onTabChange={setTab}
-              onPlayEpisode={playEpisode}
+              onPlayEpisode={player.playEpisode}
             />
           )}
           {tab === 'stats' && (
@@ -183,15 +175,11 @@ export function App() {
       />
 
       <PodcastPlayer
-        playing={playingEpisode}
-        mode={playerMode}
-        onMinimize={() => {
-          setPlayerMode('mini');
-        }}
-        onExpand={() => {
-          setPlayerMode('expanded');
-        }}
-        onClose={closePlayer}
+        playing={player.playing}
+        mode={player.mode}
+        onMinimize={player.minimize}
+        onExpand={player.expand}
+        onClose={player.close}
       />
     </div>
   );
