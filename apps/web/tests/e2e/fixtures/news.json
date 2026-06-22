@@ -1,0 +1,29 @@
+{
+  "fetchedAt": "2026-06-21T17:00:00.000Z",
+  "headlines": [
+    {
+      "id": "fixture-1",
+      "title": "Visual baseline headline one",
+      "url": "https://www.polygon.com/fixture-1",
+      "excerpt": "A deterministic news excerpt used to lock the News tab layout.",
+      "publishedAt": "2026-06-21T15:00:00.000Z",
+      "coverImage": null,
+      "source": "Polygon",
+      "platforms": ["multi"],
+      "category": "news"
+    },
+    {
+      "id": "fixture-2",
+      "title": "Visual baseline headline two",
+      "url": "https://www.ign.com/fixture-2",
+      "excerpt": "Second deterministic news entry used for screenshot regression.",
+      "publishedAt": "2026-06-21T13:00:00.000Z",
+      "coverImage": null,
+      "source": "IGN",
+      "platforms": ["playstation"],
+      "category": "review"
+    }
+  ],
+  "podcasts": [],
+  "events": []
+}
