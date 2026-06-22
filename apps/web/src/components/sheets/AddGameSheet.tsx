@@ -68,7 +68,8 @@ export function AddGameSheet({ open, onClose, onAdd, existingIds }: AddGameSheet
           <button
             type="button"
             onClick={handleSave}
-            className="text-[14px] font-semibold"
+            disabled={!form.title.trim()}
+            className="text-[14px] font-semibold disabled:opacity-40"
             style={{ color: '#d4a574' }}
           >
             Save

@@ -70,7 +70,12 @@ export function GameDetailScreen({
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/30 to-ink-950" />
         <div className="absolute inset-0 flex flex-col pt-safe">
           <div className="flex items-center justify-between px-4 pt-3">
-            <button type="button" onClick={onBack} className="glass-light rounded-full p-2.5">
+            <button
+              type="button"
+              onClick={onBack}
+              className="glass-light rounded-full p-2.5"
+              aria-label="Back"
+            >
               <Icon name="back" className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-2">

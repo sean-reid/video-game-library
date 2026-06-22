@@ -18,6 +18,22 @@ interface StatsScreenProps {
 export function StatsScreen({ games, tab, onTabChange }: StatsScreenProps) {
   const stats = useMemo(() => computeStats(games), [games]);
 
+  // Skip the skeleton wall when there's literally nothing to chart. The
+  // hint up top reads cleanly on its own and the six empty SectionCards
+  // looked like a load failure on a fresh install.
+  if (stats.totalPlayed === 0) {
+    return (
+      <div className="screen-enter pt-safe pb-32">
+        <div className="px-4 pt-5 pb-1">
+          <TitleNav active={tab} onChange={onTabChange} />
+        </div>
+        <div className="mx-4 mt-6 glass rounded-2xl p-6 text-center text-zinc-400 text-sm">
+          Rate some games to start filling your Stats page.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="screen-enter pt-safe pb-32">
       <div className="px-4 pt-5 pb-1">
@@ -68,12 +84,6 @@ export function StatsScreen({ games, tab, onTabChange }: StatsScreenProps) {
       <SectionCard title="Completion" subtitle={`${String(stats.totalRated)} rated games`}>
         <CompletionBars completion={stats.completion} totalRated={stats.totalRated} />
       </SectionCard>
-
-      {stats.totalPlayed === 0 && (
-        <div className="mx-4 mt-6 glass rounded-2xl p-6 text-center text-zinc-400 text-sm">
-          Rate some games to start filling your Stats page.
-        </div>
-      )}
     </div>
   );
 }
