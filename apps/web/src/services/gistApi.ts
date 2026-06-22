@@ -1,5 +1,6 @@
 import { GIST_KEY } from '../data/config.js';
 import type { Game, StoredGistConfig } from '../types/index.js';
+import { reportError } from '../utils/reportError.js';
 
 // Your library JSON lives in a private gist on YOUR GitHub account. The PAT
 // is AES-GCM encrypted (passphrase-derived key, see services/cryptoStorage.ts)
@@ -30,7 +31,8 @@ export function loadGistConfig(): StoredGistConfig | null {
       return parsed;
     }
     return null;
-  } catch {
+  } catch (e) {
+    reportError('gistApi.loadConfig', e);
     return null;
   }
 }
@@ -38,8 +40,8 @@ export function loadGistConfig(): StoredGistConfig | null {
 export function saveGistConfig(config: StoredGistConfig): void {
   try {
     localStorage.setItem(GIST_KEY, JSON.stringify(config));
-  } catch {
-    /* quota or disabled storage — silently drop */
+  } catch (e) {
+    reportError('gistApi.saveConfig', e);
   }
 }
 
@@ -52,7 +54,8 @@ export function hasLegacyGistConfig(): boolean {
     if (!raw) return false;
     const parsed = JSON.parse(raw) as StoredGistConfig | LegacyGistConfig;
     return !('version' in parsed) || parsed.version !== 2;
-  } catch {
+  } catch (e) {
+    reportError('gistApi.hasLegacy', e);
     return false;
   }
 }
@@ -60,8 +63,8 @@ export function hasLegacyGistConfig(): boolean {
 export function clearGistConfig(): void {
   try {
     localStorage.removeItem(GIST_KEY);
-  } catch {
-    /* same as above */
+  } catch (e) {
+    reportError('gistApi.clearConfig', e);
   }
 }
 

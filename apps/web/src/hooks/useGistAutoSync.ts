@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { updateGist } from '../services/gistApi.js';
 import type { Game, UnlockedGistConfig } from '../types/index.js';
+import { reportError } from '../utils/reportError.js';
 
 const DEBOUNCE_MS = 5000;
 
@@ -26,7 +27,7 @@ export function useGistAutoSync(
           await updateGist(unlocked.token, unlocked.gistId, games);
           onSynced();
         } catch (e) {
-          console.warn('Gist auto-sync failed:', e);
+          reportError('gistAutoSync', e);
         }
       })();
     }, DEBOUNCE_MS);

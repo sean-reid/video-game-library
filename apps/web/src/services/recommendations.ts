@@ -1,6 +1,7 @@
 import { RECS_KEY } from '../data/config.js';
 import type { Game } from '../types/index.js';
 import { primaryPlatform } from '../utils/gameHelpers.js';
+import { reportError } from '../utils/reportError.js';
 import { fetchRawgDetail, type RecCandidate, type TasteProfile } from './rawgApi.js';
 
 export interface RecsState {
@@ -21,7 +22,8 @@ export function loadRecs(): RecsState {
       candidates: parsed.candidates ?? [],
       dismissedIds: parsed.dismissedIds ?? [],
     };
-  } catch {
+  } catch (e) {
+    reportError('recommendations.loadRecs', e);
     return EMPTY;
   }
 }
@@ -29,8 +31,8 @@ export function loadRecs(): RecsState {
 export function saveRecs(recs: RecsState): void {
   try {
     localStorage.setItem(RECS_KEY, JSON.stringify(recs));
-  } catch {
-    /* quota or disabled storage */
+  } catch (e) {
+    reportError('recommendations.saveRecs', e);
   }
 }
 
@@ -117,7 +119,7 @@ export async function enrichTop50Detail(games: Game[], applyPatch: ApplyPatchFn)
         rawgMetacritic: detail.metacritic ?? null,
       });
     } catch (e) {
-      console.warn('RAWG detail miss for', g.title, e);
+      reportError(`recommendations.enrich:${g.title}`, e);
     }
     await new Promise((r) => setTimeout(r, 80));
   }
