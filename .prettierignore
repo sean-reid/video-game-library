@@ -17,3 +17,6 @@ worker.js
 sw.js
 NOTES.md
 README.md
+
+# Bundled-but-not-rewritten copy of the original single-file app
+apps/web/src/legacy/**
