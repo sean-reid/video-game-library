@@ -1,9 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
-import { PodcastPlayer } from './components/player/PodcastPlayer.js';
-import { GameDetailScreen, buildNavOrder } from './components/screens/GameDetailScreen.js';
+import { Suspense, lazy, useMemo, useRef, useState } from 'react';
 import { LibraryScreen, type LibrarySection } from './components/screens/LibraryScreen.js';
-import { NewsScreen } from './components/screens/NewsScreen.js';
-import { StatsScreen } from './components/screens/StatsScreen.js';
 import { AddGameSheet } from './components/sheets/AddGameSheet.js';
 import { BackupSheet } from './components/sheets/BackupSheet.js';
 import { EditGameSheet } from './components/sheets/EditGameSheet.js';
@@ -15,6 +11,33 @@ import { usePodcastPlayer } from './hooks/usePodcastPlayer.js';
 import { useRawgEnrichment } from './hooks/useRawgEnrichment.js';
 import { hasLegacyGistConfig } from './services/gistApi.js';
 import { exportLibrary, importLibrary } from './services/libraryIO.js';
+import { buildNavOrder } from './utils/navOrder.js';
+
+// Heavy screens load on demand. LibraryScreen stays eager because it's the
+// landing tab; the others ship as their own chunks fetched when the user
+// switches tabs / opens a detail. PodcastPlayer is gated on an active
+// episode so the YouTube IFrame API is never pulled until playback starts.
+const GameDetailScreen = lazy(() =>
+  import('./components/screens/GameDetailScreen.js').then((m) => ({
+    default: m.GameDetailScreen,
+  })),
+);
+const NewsScreen = lazy(() =>
+  import('./components/screens/NewsScreen.js').then((m) => ({ default: m.NewsScreen })),
+);
+const StatsScreen = lazy(() =>
+  import('./components/screens/StatsScreen.js').then((m) => ({ default: m.StatsScreen })),
+);
+const PodcastPlayer = lazy(() =>
+  import('./components/player/PodcastPlayer.js').then((m) => ({ default: m.PodcastPlayer })),
+);
+
+// Empty placeholder while a chunk loads — matches the screen-enter shell so
+// there's no layout shift when the real screen mounts. The library is the
+// only tab that flashes at boot, and that's eagerly imported.
+function ScreenFallback() {
+  return <div className="screen-enter pt-safe" aria-busy="true" />;
+}
 
 export function App() {
   const {
@@ -71,70 +94,72 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-ink-950 text-zinc-100 max-w-md mx-auto relative">
-      {selected ? (
-        <GameDetailScreen
-          game={selected}
-          onBack={() => {
-            setSelectedId(null);
-          }}
-          onEdit={() => {
-            setEditId(selected.id);
-          }}
-          onToggleCompletion={toggleCompletion}
-          onPrev={() => {
-            if (hasPrev) {
-              const prevId = navOrder[navIdx - 1];
-              if (prevId) setSelectedId(prevId);
-            }
-          }}
-          onNext={() => {
-            if (hasNext) {
-              const nextId = navOrder[navIdx + 1];
-              if (nextId) setSelectedId(nextId);
-            }
-          }}
-          hasPrev={hasPrev}
-          hasNext={hasNext}
-        />
-      ) : (
-        <>
-          {tab === 'library' && (
-            <LibraryScreen
-              games={games}
-              onSelect={(g) => {
-                openDetail(g.id);
-              }}
-              section={section}
-              setSection={setSection}
-              enrichStatus={enrichStatus}
-              onAdd={() => {
-                setAddOpen(true);
-              }}
-              onOpenBackup={() => {
-                setBackupOpen(true);
-              }}
-              onReorderRumored={reorderRumored}
-              savedScrollsRef={savedScrollsRef}
-              tab={tab}
-              onTabChange={setTab}
-              addGame={addGame}
-              applyPatchToGame={applyPatchToGame}
-            />
-          )}
-          {tab === 'news' && (
-            <NewsScreen
-              games={games}
-              onSelect={(g) => {
-                openDetail(g.id);
-              }}
-              tab={tab}
-              onTabChange={setTab}
-              onPlayEpisode={player.playEpisode}
-            />
-          )}
-          {tab === 'stats' && <StatsScreen games={games} tab={tab} onTabChange={setTab} />}
-        </>
-      )}
+      <Suspense fallback={<ScreenFallback />}>
+        {selected ? (
+          <GameDetailScreen
+            game={selected}
+            onBack={() => {
+              setSelectedId(null);
+            }}
+            onEdit={() => {
+              setEditId(selected.id);
+            }}
+            onToggleCompletion={toggleCompletion}
+            onPrev={() => {
+              if (hasPrev) {
+                const prevId = navOrder[navIdx - 1];
+                if (prevId) setSelectedId(prevId);
+              }
+            }}
+            onNext={() => {
+              if (hasNext) {
+                const nextId = navOrder[navIdx + 1];
+                if (nextId) setSelectedId(nextId);
+              }
+            }}
+            hasPrev={hasPrev}
+            hasNext={hasNext}
+          />
+        ) : (
+          <>
+            {tab === 'library' && (
+              <LibraryScreen
+                games={games}
+                onSelect={(g) => {
+                  openDetail(g.id);
+                }}
+                section={section}
+                setSection={setSection}
+                enrichStatus={enrichStatus}
+                onAdd={() => {
+                  setAddOpen(true);
+                }}
+                onOpenBackup={() => {
+                  setBackupOpen(true);
+                }}
+                onReorderRumored={reorderRumored}
+                savedScrollsRef={savedScrollsRef}
+                tab={tab}
+                onTabChange={setTab}
+                addGame={addGame}
+                applyPatchToGame={applyPatchToGame}
+              />
+            )}
+            {tab === 'news' && (
+              <NewsScreen
+                games={games}
+                onSelect={(g) => {
+                  openDetail(g.id);
+                }}
+                tab={tab}
+                onTabChange={setTab}
+                onPlayEpisode={player.playEpisode}
+              />
+            )}
+            {tab === 'stats' && <StatsScreen games={games} tab={tab} onTabChange={setTab} />}
+          </>
+        )}
+      </Suspense>
 
       <AddGameSheet
         open={addOpen}
@@ -170,13 +195,17 @@ export function App() {
         hadLegacyConfig={hadLegacyConfig}
       />
 
-      <PodcastPlayer
-        playing={player.playing}
-        mode={player.mode}
-        onMinimize={player.minimize}
-        onExpand={player.expand}
-        onClose={player.close}
-      />
+      {player.playing && (
+        <Suspense fallback={null}>
+          <PodcastPlayer
+            playing={player.playing}
+            mode={player.mode}
+            onMinimize={player.minimize}
+            onExpand={player.expand}
+            onClose={player.close}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

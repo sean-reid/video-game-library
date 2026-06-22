@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { STATE_META } from '../../data/constants.js';
 import type { Completion, Game } from '../../types/index.js';
-import { parseExpected, upcomingSortKey } from '../../utils/dateUtils.js';
+import { parseExpected } from '../../utils/dateUtils.js';
 import {
   TIER,
   effectiveCover,
@@ -12,45 +12,6 @@ import {
 import { RatingBreakdown } from '../charts/RatingBreakdown.js';
 import { SpiderChart } from '../charts/SpiderChart.js';
 import { Icon } from '../common/Icon.js';
-import type { SectionId } from '../navigation/SectionNav.js';
-
-export function buildNavOrder(games: Game[], section: SectionId | null | undefined): string[] {
-  let list: Game[];
-  switch (section) {
-    case 'top50':
-      list = games
-        .filter((g) => g.topListRank != null)
-        .sort((a, b) => (a.topListRank ?? 0) - (b.topListRank ?? 0));
-      break;
-    case 'playing':
-      list = games.filter((g) => g.state === 'playing');
-      break;
-    case 'upcoming':
-      list = games
-        .filter((g) => g.state === 'upcoming')
-        .sort((a, b) => upcomingSortKey(a) - upcomingSortKey(b));
-      break;
-    case 'rumored':
-      list = games.filter((g) => g.state === 'rumored');
-      break;
-    case 'recommended':
-      list = games
-        .filter((g) => g.state === 'recommended')
-        .sort((a, b) => (primaryYear(b) ?? 0) - (primaryYear(a) ?? 0));
-      break;
-    case 'played':
-      list = games
-        .filter((g) => g.state === 'played')
-        .sort(
-          (a, b) =>
-            (b.year ?? 0) - (a.year ?? 0) || (a.topListRank ?? 999) - (b.topListRank ?? 999),
-        );
-      break;
-    default:
-      list = games;
-  }
-  return list.map((g) => g.id);
-}
 
 type CompletionKey = keyof Completion;
 
