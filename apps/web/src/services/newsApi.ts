@@ -1,5 +1,11 @@
-import { NEWS_CACHE_KEY, WORKER_BASE } from '../data/config.js';
-import type { ArticleResponse, NewsBundle, PodcastBundle } from '../types/index.js';
+import { DISMISSED_KEY, NEWS_CACHE_KEY, READ_KEY, WORKER_BASE } from '../data/config.js';
+import type {
+  ArticleResponse,
+  Game,
+  Headline,
+  NewsBundle,
+  PodcastBundle,
+} from '../types/index.js';
 
 const NEWS_URL = `${WORKER_BASE}/news`;
 
@@ -70,4 +76,65 @@ export function saveCachedNews(data: CachedNews): void {
   } catch {
     /* quota / disabled storage — drop silently */
   }
+}
+
+export function loadRead(): Set<string> {
+  try {
+    const raw = localStorage.getItem(READ_KEY);
+    if (raw) return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    /* corrupted entry */
+  }
+  return new Set();
+}
+
+export function saveRead(set: Set<string>): void {
+  try {
+    localStorage.setItem(READ_KEY, JSON.stringify([...set]));
+  } catch {
+    /* quota */
+  }
+}
+
+export function loadDismissed(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY) ?? '[]') as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveDismissed(set: Set<string>): void {
+  try {
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify([...set]));
+  } catch {
+    /* quota */
+  }
+}
+
+function normalizeForMatch(s: string | null | undefined): string {
+  return (s ?? '')
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Does an article mention a game in the user's library? Returns the matched
+// game, or null. Strips punctuation when comparing so "007: First Light"
+// matches "007 First Light".
+export function matchLibraryGame(
+  article: Headline | null | undefined,
+  games: Game[],
+): Game | null {
+  if (!article || games.length === 0) return null;
+  const haystack = normalizeForMatch(`${article.title} ${article.excerpt ?? ''}`);
+  const sorted = [...games].sort((a, b) => b.title.length - a.title.length);
+  for (const g of sorted) {
+    if (!g.title) continue;
+    const needle = normalizeForMatch(g.title);
+    if (needle.length < 4) continue;
+    if (haystack.includes(needle)) return g;
+  }
+  return null;
 }
