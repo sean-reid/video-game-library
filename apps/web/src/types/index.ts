@@ -51,6 +51,9 @@ export interface Game {
   rawgMetacritic?: number | null;
   // For rumored/upcoming games where the exact release isn't pinned down.
   expectedDate?: string;
+  // User-entered HLTB-style estimate for "Recommended" cards (the legacy
+  // form allows freeform hours alongside RAWG's number).
+  timeToBeat?: number | string | null;
 }
 
 // News / podcast / event payloads returned by the Cloudflare worker.

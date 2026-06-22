@@ -39,6 +39,10 @@ import {
   loadYouTubeApi,
   parseChapters,
 } from '../services/youtubeApi.ts';
+import { GameCard } from '../components/cards/GameCard.tsx';
+import { HeadlineCard, SOURCE_COLORS } from '../components/cards/HeadlineCard.tsx';
+import { PodcastCard } from '../components/cards/PodcastCard.tsx';
+import { RecCandidateCard } from '../components/cards/RecCandidateCard.tsx';
 import { CompletionBars } from '../components/charts/CompletionBars.tsx';
 import { PredictivenessRadar } from '../components/charts/PredictivenessRadar.tsx';
 import { RatingBreakdown } from '../components/charts/RatingBreakdown.tsx';
@@ -56,8 +60,10 @@ import { SectionNav } from '../components/navigation/SectionNav.tsx';
 import { TitleNav } from '../components/navigation/TitleNav.tsx';
 import {
   freshnessLabel,
+  freshnessPulse,
   parseExpected,
   parseLocalDate,
+  shortDate,
   shortDateLabel,
   timeAgo,
   upcomingSortKey,
@@ -233,129 +239,6 @@ const enrichTop50Detail = async (games, applyPatch) => {
 // ICONS
 // =============================================================================
 
-// =============================================================================
-// GAME CARD (grid view)
-// =============================================================================
-// Short date label for Upcoming card badge (e.g. "Jun 25", "Fall '26", "2027", "Now")
-
-const GameCard = ({ game, onClick }) => {
-  const tier = game.rating ? TIER(game.rating.total) : null;
-  const isTop50 = game.topListRank != null;
-  const cover = effectiveCover(game);
-  const hasCover = !!cover;
-
-  // TOP-LEFT state tag (consistent across sections)
-  let leftBadge = null;
-  if (isTop50) {
-    leftBadge = (
-      <div className="glass-light rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase" style={{ color: tier.color }}>
-        #{game.topListRank}
-      </div>
-    );
-  } else if (game.state === 'playing') {
-    leftBadge = (
-      <div className="glass-light rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase text-emerald-300">
-        Playing
-      </div>
-    );
-  } else if (game.state === 'upcoming' && game.notes) {
-    // Insert a bullet after "Pre-ordered " if it isn't already there
-    const noteText = game.notes.startsWith('Pre-ordered ') && !game.notes.includes('•')
-      ? game.notes.replace('Pre-ordered ', 'Pre-ordered • ')
-      : game.notes;
-    leftBadge = (
-      <div className="glass-light rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide text-zinc-200">
-        {noteText}
-      </div>
-    );
-  } else if (game.state === 'recommended') {
-    const hrs = game.timeToBeat || game.rawgPlaytime;
-    if (hrs) {
-      leftBadge = (
-        <div className="glass-light rounded-full px-2 py-0.5 text-[10px] font-medium text-zinc-200">
-          ~{hrs} hrs
-        </div>
-      );
-    }
-  }
-
-  // TOP-RIGHT — currently unused; reserved for future signals
-  let rightBadge = null;
-
-  // Bottom meta line — full date for Upcoming, year+platform for others
-  const plat = primaryPlatform(game);
-  const year = primaryYear(game);
-  let metaLine = '';
-  if (game.state === 'upcoming') {
-    const dateLabel = parseExpected(game.expectedDate).label;
-    // Skip the date when the section header already conveys it
-    // (Available → "Available now" header; year-only → year header)
-    const dateIsRedundant = game.expectedDate === 'Available' || /^\d{4}$/.test(dateLabel);
-    metaLine = dateIsRedundant ? plat : [dateLabel, plat].filter(Boolean).join(' · ');
-  } else {
-    metaLine = [year, plat].filter(Boolean).join(' · ');
-  }
-
-  // Playing also gets a HLTB-style playtime line under title
-  const showPlaytime = game.state === 'playing' && game.rawgPlaytime;
-
-  return (
-    <button
-      onClick={onClick}
-      className="relative group text-left w-full aspect-[3/4] rounded-2xl overflow-hidden grain"
-      style={hasCover ? { background: '#0a0a0c' } : { background: gradientFor(game) }}
-    >
-      {hasCover && (
-        <img src={cover} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
-      )}
-      {hasCover && (
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/20" />
-      )}
-      <div className="absolute inset-0 flex flex-col justify-end p-3 gap-1.5">
-        {/* Badges hover above the title strip. Left cluster = state/rank badge
-            plus gold completion markers (platinum trophy, replayed arrow). */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            {leftBadge}
-            {game.completion?.platinum && (
-              <div className="glass-light rounded-full p-1" title="Platinum">
-                <Icon name="trophy" className="w-3 h-3" style={{ color: '#e2b878' }} />
-              </div>
-            )}
-            {game.completion?.replayed && (
-              <div className="glass-light rounded-full p-1" title="Replayed">
-                <Icon name="replay" className="w-3 h-3" style={{ color: '#e2b878' }} />
-              </div>
-            )}
-          </div>
-          {rightBadge || <div />}
-        </div>
-
-        <div className="glass rounded-xl px-3 py-2.5">
-          <div className="serif text-[17px] leading-[1.1] text-white line-clamp-2">{game.title}</div>
-          {showPlaytime && (
-            <div className="flex items-center gap-1 mt-1 text-[10px] uppercase tracking-wider text-zinc-300 font-medium">
-              <Icon name="clock" className="w-2.5 h-2.5" />
-              ~{game.rawgPlaytime} hrs avg
-            </div>
-          )}
-          {(metaLine || game.rating) && (
-            <div className="flex items-start justify-between mt-1.5 gap-2">
-              <div className="text-[10px] uppercase tracking-wide text-zinc-400 font-medium leading-tight">
-                {metaLine}
-              </div>
-              {game.rating && (
-                <div className="text-[13px] font-semibold tabular-nums shrink-0" style={{ color: tier.color }}>
-                  {game.rating.total}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </button>
-  );
-};
 
 const Top50View = ({ games, onSelect }) => {
   const groups = useMemo(() => {
@@ -494,49 +377,6 @@ const RumoredView = ({ games, onSelect, onReorder }) => {
   );
 };
 
-// Compact card for a RAWG candidate (matches GameCard visual language but
-// shows a Metacritic badge in the top-left instead of state/rank). Tap
-// opens the action sheet — save for later or dismiss.
-const RecCandidateCard = ({ candidate, onClick }) => {
-  const cover = candidate.coverImage;
-  const plat = shortPlatform(pickBestPlatform(candidate.platforms));
-  const metaLine = [candidate.year, plat].filter(Boolean).join(' · ');
-  const mc = candidate.metacritic;
-  const mcColor = mc >= 90 ? '#e2b878' : mc >= 80 ? '#a8b4c0' : '#b87349';
-
-  return (
-    <button
-      onClick={onClick}
-      className="relative group text-left w-full aspect-[3/4] rounded-2xl overflow-hidden grain"
-      style={cover ? { background: '#0a0a0c' } : { background: gradientFor({ title: candidate.title, platform: plat }) }}
-    >
-      {cover && (
-        <img src={cover} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
-      )}
-      {cover && (
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/20" />
-      )}
-      <div className="absolute inset-0 flex flex-col justify-end p-3 gap-1.5">
-        <div className="flex items-center justify-between gap-2">
-          {mc ? (
-            <div className="glass-light rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums" style={{ color: mcColor }}>
-              {mc}
-            </div>
-          ) : <div />}
-          <div />
-        </div>
-        <div className="glass rounded-xl px-3 py-2.5">
-          <div className="serif text-[17px] leading-[1.1] text-white line-clamp-2">{candidate.title}</div>
-          {metaLine && (
-            <div className="text-[10px] uppercase tracking-wide text-zinc-400 font-medium leading-tight mt-1.5">
-              {metaLine}
-            </div>
-          )}
-        </div>
-      </div>
-    </button>
-  );
-};
 
 // Bottom action sheet shown when a "For you" card is tapped.
 const RecActionSheet = ({ candidate, onClose, onSave, onDismiss }) => {
@@ -2209,28 +2049,6 @@ const saveDismissed = (set) => {
   try { localStorage.setItem(DISMISSED_KEY, JSON.stringify([...set])); } catch {}
 };
 
-const SOURCE_COLORS = {
-  'Nintendo Life':       '#dc2626',
-  'PlayStation Blog':    '#3b82f6',
-  'Polygon':             '#a855f7',
-  'IGN':                 '#ef4444',
-  'Engadget':            '#10b981',
-  'Kotaku':              '#f59e0b',
-};
-
-
-const freshnessPulse = (iso) => {
-  const d = parseLocalDate(iso);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const that = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const days = Math.floor((today.getTime() - that.getTime()) / 86400000);
-  if (days <= 0) return '#22c55e'; // bright green — fresh today
-  if (days === 1) return '#e2b878'; // gold — yesterday
-  return '#71717a';                 // muted — older
-};
-
-const shortDate = (iso) => parseLocalDate(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
 // =============================================================================
 // EVENT BANNER (Nintendo Direct / Sony State of Play)
 // =============================================================================
@@ -2261,66 +2079,6 @@ const EventBanner = ({ event, onDismiss }) => {
           <Icon name="close" className="w-4 h-4 text-zinc-300" />
         </button>
       </div>
-    </div>
-  );
-};
-
-// =============================================================================
-// PODCAST CARD
-// =============================================================================
-const PodcastCard = ({ pod, onPlay, onViewAll }) => {
-  // Graceful fallback if the Worker temporarily returns no episodes
-  if (!pod.episodes || pod.episodes.length === 0) {
-    return (
-      <div className="mx-4 mt-3 glass rounded-2xl p-4 text-sm text-zinc-500">
-        No recent episodes for <span className="text-zinc-300">{pod.show}</span> yet.
-      </div>
-    );
-  }
-  const latest = pod.episodes[0];
-  const previous = pod.episodes.slice(1);
-  const pulseColor = freshnessPulse(latest.date);
-  const freshLabel = freshnessLabel(latest.date);
-  return (
-    <div className="mx-4 mt-3 glass rounded-2xl overflow-hidden">
-      <div className="flex">
-        <div className="w-24 shrink-0 grain" style={{ background: pod.coverGradient }}>
-          <div className="h-full flex items-center justify-center text-3xl">🎙️</div>
-        </div>
-        <div className="flex-1 min-w-0 p-3.5">
-          <div className="flex items-center gap-1.5">
-            <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: pulseColor }} />
-            <div className="text-[10px] uppercase tracking-[0.18em] font-medium" style={{ color: pulseColor }}>
-              {freshLabel}
-            </div>
-          </div>
-          <div className="serif text-[16px] text-white leading-tight mt-1 line-clamp-2">{latest.title}</div>
-          <div className="text-[11px] uppercase tracking-wider text-zinc-500 font-medium mt-1.5">{pod.show}</div>
-          <div className="flex items-center gap-2 mt-2">
-            <button
-              onClick={(e) => { e.stopPropagation(); onPlay(pod, latest); }}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white text-ink-950 text-[11px] font-semibold"
-            >
-              <Icon name="play" className="w-3 h-3" filled />
-              Play
-            </button>
-            {latest.duration && (
-              <span className="text-[11px] text-zinc-500 tabular-nums ml-auto">{latest.duration}</span>
-            )}
-          </div>
-        </div>
-      </div>
-      {previous.length > 0 && (
-        <button
-          onClick={() => onViewAll(pod)}
-          className="w-full border-t border-white/5 px-4 py-2.5 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors"
-        >
-          <span className="text-[12px] text-zinc-300">
-            View {previous.length} previous episode{previous.length === 1 ? '' : 's'}
-          </span>
-          <span className="text-zinc-500 text-[16px] leading-none">→</span>
-        </button>
-      )}
     </div>
   );
 };
@@ -2806,54 +2564,6 @@ const PodcastPlayer = ({ playing, mode, onMinimize, onExpand, onClose }) => {
         </div>
       )}
     </>
-  );
-};
-
-// =============================================================================
-// HEADLINE CARD
-// =============================================================================
-const HeadlineCard = ({ article, onOpen, libraryMatch, isRead }) => {
-  const sourceColor = SOURCE_COLORS[article.source] || '#a1a1aa';
-  const [imageFailed, setImageFailed] = useState(false);
-  const showImage = article.coverImage && !imageFailed;
-  return (
-    <button
-      onClick={() => onOpen(article)}
-      className={`w-full text-left p-3 flex items-start gap-3 hover:bg-white/5 active:bg-white/10 transition-colors ${isRead ? 'opacity-45' : ''}`}
-    >
-      <div className="w-20 h-20 rounded-xl overflow-hidden shrink-0" style={{ background: showImage ? '#0a0a0c' : `${sourceColor}26` /* ~15% alpha */ }}>
-        {showImage ? (
-          <img
-            src={article.coverImage}
-            alt=""
-            loading="lazy"
-            className="w-full h-full object-cover"
-            onError={() => setImageFailed(true)}
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-3xl select-none">🎮</div>
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: sourceColor }}>
-            {article.source}
-          </span>
-          <span className="text-[10px] text-zinc-500 tabular-nums">·</span>
-          <span className="text-[10px] text-zinc-500 tabular-nums">{timeAgo(article.publishedAt)}</span>
-          {libraryMatch && (
-            <span title={`In your library: ${libraryMatch.title}`} className="ml-1 flex items-center">
-              <Icon name="star" filled className="w-3 h-3" style={{ color: '#e2b878' }} />
-            </span>
-          )}
-          {isRead && (
-            <span className="ml-1 text-[9px] uppercase tracking-wider text-zinc-600 font-semibold">Read</span>
-          )}
-        </div>
-        <div className="serif text-[15px] text-white leading-snug mt-0.5 line-clamp-2">{article.title}</div>
-        <div className="text-[12px] text-zinc-400 mt-1 line-clamp-2 leading-snug">{article.excerpt}</div>
-      </div>
-    </button>
   );
 };
 
