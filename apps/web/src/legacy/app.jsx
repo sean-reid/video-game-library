@@ -8,14 +8,7 @@ import {
   RECS_TTL_MS,
   STORAGE_KEY,
 } from '../data/config.js';
-import {
-  CATEGORIES,
-  MONTH_TO_NUM,
-  MONTHS,
-  SEASON_OFFSETS,
-  STATE_META,
-  TIER_COLOR_FOR_LABEL,
-} from '../data/constants.js';
+import { CATEGORIES, STATE_META, TIER_COLOR_FOR_LABEL } from '../data/constants.js';
 import { PLATFORM_PRIORITY, RAWG_PLATFORM_IDS } from '../data/platforms.js';
 import { SEED_GAMES } from '../data/seed.js';
 import {
@@ -47,6 +40,14 @@ import {
   parseChapters,
 } from '../services/youtubeApi.ts';
 import {
+  freshnessLabel,
+  parseExpected,
+  parseLocalDate,
+  shortDateLabel,
+  timeAgo,
+  upcomingSortKey,
+} from '../utils/dateUtils.ts';
+import {
   TIER,
   effectiveCover,
   gradientFor,
@@ -56,6 +57,12 @@ import {
   primaryYear,
   shortPlatform,
 } from '../utils/gameHelpers.ts';
+import {
+  TIER_BAND_ORDER,
+  computeStats,
+  franchiseOf,
+  tierOfGame,
+} from '../utils/stats.ts';
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -64,77 +71,6 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 // =============================================================================
 
 
-
-const parseExpected = (s) => {
-  if (!s) return { sortKey: 9999, label: 'TBD' };
-  if (s === 'Available') return { sortKey: 0, label: 'Available now' };
-
-  // "M/D/YYYY" or "M/D/YY"
-  const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if (mdy) {
-    const m = parseInt(mdy[1], 10), d = parseInt(mdy[2], 10);
-    let y = parseInt(mdy[3], 10);
-    if (y < 100) y += 2000;
-    return { sortKey: y * 10000 + m * 100 + d, label: `${MONTHS[m-1]} ${d}, ${y}` };
-  }
-  // "M/D" — assume 2026 for legacy seed compatibility
-  const md = s.match(/^(\d{1,2})\/(\d{1,2})$/);
-  if (md) {
-    const m = parseInt(md[1], 10), d = parseInt(md[2], 10);
-    return { sortKey: 2026 * 10000 + m * 100 + d, label: `${MONTHS[m-1]} ${d}, 2026` };
-  }
-
-  // "Month DD, YYYY" / "Month DDth, YYYY" / "Mon DD YYYY"
-  const mdyName = s.match(/^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/);
-  if (mdyName) {
-    const m = MONTH_TO_NUM[mdyName[1].toLowerCase()];
-    if (m) {
-      const d = parseInt(mdyName[2], 10);
-      const y = parseInt(mdyName[3], 10);
-      return { sortKey: y * 10000 + m * 100 + d, label: s };
-    }
-  }
-
-  // "Month YYYY" or "Season YYYY" — e.g., "February 2027", "Fall 2026"
-  const monthOrSeason = s.match(/^([A-Za-z]+)\s+(\d{4})$/);
-  if (monthOrSeason) {
-    const word = monthOrSeason[1].toLowerCase();
-    const y = parseInt(monthOrSeason[2], 10);
-    if (MONTH_TO_NUM[word] != null) {
-      return { sortKey: y * 10000 + MONTH_TO_NUM[word] * 100, label: s };
-    }
-    if (SEASON_OFFSETS[word] != null) {
-      return { sortKey: y * 10000 + SEASON_OFFSETS[word], label: s };
-    }
-  }
-
-  // "H1 YYYY" / "H2 YYYY"
-  const h = s.match(/^H(\d)\s+(\d{4})$/);
-  if (h) return { sortKey: parseInt(h[2]) * 10000 + (h[1] === '1' ? 300 : 900), label: s };
-
-  // "Q1 YYYY" through "Q4 YYYY"
-  const q = s.match(/^Q([1-4])\s+(\d{4})$/);
-  if (q) {
-    const qn = parseInt(q[1], 10);
-    const y = parseInt(q[2], 10);
-    return { sortKey: y * 10000 + ((qn - 1) * 300 + 200), label: s };
-  }
-
-  // Year only "YYYY"
-  const y = s.match(/^(\d{4})$/);
-  if (y) return { sortKey: parseInt(y[1]) * 10000 + 9999, label: s };
-
-  return { sortKey: 9999, label: s };
-};
-
-// Effective sort key for upcoming games — falls back to game.year when
-// the expectedDate string doesn't parse, so a free-form date plus a year
-// still lands in the right bucket.
-const upcomingSortKey = (game) => {
-  const { sortKey } = parseExpected(game.expectedDate);
-  if (sortKey === 9999 && game.year) return game.year * 10000 + 9999;
-  return sortKey;
-};
 
 const loadGames = () => {
   try {
@@ -327,20 +263,6 @@ const Icon = ({ name, className = 'w-5 h-5', style, filled }) => {
 // GAME CARD (grid view)
 // =============================================================================
 // Short date label for Upcoming card badge (e.g. "Jun 25", "Fall '26", "2027", "Now")
-const shortDateLabel = (s) => {
-  if (!s) return '';
-  if (s === 'Available') return 'Now';
-  const md = s.match(/^(\d{1,2})\/(\d{1,2})$/);
-  if (md) return `${MONTHS[parseInt(md[1])-1]} ${parseInt(md[2])}`;
-  const h1 = s.match(/^H(\d)\s+(\d{4})$/);
-  if (h1) return `H${h1[1]} '${h1[2].slice(2)}`;
-  const season = s.match(/^(Spring|Summer|Fall|Winter)\s+(\d{4})$/);
-  if (season) return `${season[1]} '${season[2].slice(2)}`;
-  const y = s.match(/^(\d{4})$/);
-  if (y) return y[1];
-  return s;
-};
-
 
 const GameCard = ({ game, onClick }) => {
   const tier = game.rating ? TIER(game.rating.total) : null;
@@ -2625,41 +2547,6 @@ const SOURCE_COLORS = {
   'Kotaku':              '#f59e0b',
 };
 
-const timeAgo = (iso) => {
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const diff = Math.max(0, now - then);
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
-};
-
-// Parse a YYYY-MM-DD string as LOCAL midnight (not UTC) so we don't lose a
-// day to timezone offsets.
-const parseLocalDate = (iso) => {
-  if (!iso) return null;
-  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return new Date(iso);
-  return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
-};
-
-// "TODAY" / "YESTERDAY" / "2 DAYS AGO" / "MAY 23"
-const freshnessLabel = (iso) => {
-  if (!iso) return '';
-  const d = parseLocalDate(iso);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const that = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const days = Math.floor((today.getTime() - that.getTime()) / 86400000);
-  if (days < 0) return 'UPCOMING';
-  if (days === 0) return 'TODAY';
-  if (days === 1) return 'YESTERDAY';
-  if (days < 7) return `${days} DAYS AGO`;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
-};
 
 const freshnessPulse = (iso) => {
   const d = parseLocalDate(iso);
@@ -3532,177 +3419,6 @@ const StatsScreen = ({ games, tab, onTabChange }) => {
 // -----------------------------------------------------------------------------
 // Franchise rules — title-prefix regexes that bucket games into series. Order
 // matters: more specific patterns first so e.g. "Mario Kart" wins over "Mario".
-const FRANCHISE_RULES = [
-  { match: /^pok[eé]mon\b|^pokopia\b|^new pok[eé]mon\b/i,                                                label: 'Pokémon' },
-  { match: /^(the )?(legend of )?zelda\b|^zelda:|^hyrule warriors\b|^a link to the past\b/i,             label: 'Zelda' },
-  { match: /^super smash bros/i,                                                                         label: 'Smash Bros.' },
-  { match: /^mario kart\b/i,                                                                             label: 'Mario Kart' },
-  { match: /^(super |new super )?mario\b|^paper mario\b|^mario party\b|^3d mario\b|^luigi'?s mansion\b/i, label: 'Mario' },
-  { match: /^god of war\b/i,                                                                             label: 'God of War' },
-  { match: /^spider-?man\b/i,                                                                            label: 'Spider-Man' },
-  { match: /^the last of us\b/i,                                                                         label: 'The Last of Us' },
-  { match: /^uncharted\b/i,                                                                              label: 'Uncharted' },
-  { match: /^grand theft auto\b|^gta\b/i,                                                                label: 'Grand Theft Auto' },
-  { match: /^red dead\b/i,                                                                               label: 'Red Dead' },
-  { match: /^final fantasy\b/i,                                                                          label: 'Final Fantasy' },
-  { match: /^assassin'?s creed\b/i,                                                                      label: "Assassin's Creed" },
-  { match: /^dark souls\b/i,                                                                             label: 'Dark Souls' },
-  { match: /^mass effect\b/i,                                                                            label: 'Mass Effect' },
-  { match: /^metroid\b/i,                                                                                label: 'Metroid' },
-  { match: /^kingdom hearts\b/i,                                                                         label: 'Kingdom Hearts' },
-  { match: /^persona\b/i,                                                                                label: 'Persona' },
-  { match: /^resident evil\b/i,                                                                          label: 'Resident Evil' },
-  { match: /^splatoon\b/i,                                                                               label: 'Splatoon' },
-  { match: /^hollow knight\b/i,                                                                          label: 'Hollow Knight' },
-  { match: /^horizon\b/i,                                                                                label: 'Horizon' },
-  { match: /^(the )?witcher\b/i,                                                                         label: 'The Witcher' },
-  { match: /^fire emblem\b/i,                                                                            label: 'Fire Emblem' },
-  { match: /^donkey kong\b|^diddy kong\b/i,                                                              label: 'Donkey Kong' },
-  { match: /^kirby\b/i,                                                                                  label: 'Kirby' },
-  { match: /^ratchet (&|and) clank\b/i,                                                                  label: 'Ratchet & Clank' },
-  { match: /^jak and daxter\b/i,                                                                         label: 'Jak and Daxter' },
-  { match: /^(lego )?star wars\b/i,                                                                      label: 'Star Wars' },
-  { match: /^tomb raider\b/i,                                                                            label: 'Tomb Raider' },
-  { match: /^sonic\b|^shadow the hedgehog\b/i,                                                           label: 'Sonic' },
-  { match: /^ghost of\b/i,                                                                               label: 'Ghost (Sucker Punch)' },
-  { match: /^hellblade\b/i,                                                                              label: 'Hellblade' },
-  { match: /^death stranding\b/i,                                                                        label: 'Death Stranding' },
-  { match: /^black myth\b/i,                                                                             label: 'Black Myth' },
-  { match: /^wario ?ware\b/i,                                                                            label: 'WarioWare' },
-  { match: /^astro\b/i,                                                                                  label: 'Astro Bot' },
-  { match: /^batman\b/i,                                                                                 label: 'Batman: Arkham' },
-  { match: /^banjo\b/i,                                                                                  label: 'Banjo-Kazooie' },
-  { match: /^star ?fox\b/i,                                                                              label: 'Star Fox' },
-  { match: /^metal gear\b/i,                                                                             label: 'Metal Gear' },
-  { match: /^bayonetta\b/i,                                                                              label: 'Bayonetta' },
-  { match: /^hogwarts\b|^harry potter\b/i,                                                               label: 'Wizarding World' },
-  { match: /^silent hill\b/i,                                                                            label: 'Silent Hill' },
-  { match: /^tony hawk\b/i,                                                                              label: 'Tony Hawk' },
-];
-
-const franchiseOf = (game) => {
-  const t = (game.title || '').trim();
-  for (const r of FRANCHISE_RULES) if (r.match.test(t)) return r.label;
-  return null;
-};
-
-// Bucket every played game into one of four bands:
-//   Masterpiece (Top 50 + score ≥100), Amazing (Top 50 + 90-99),
-//   Great (Top 50 + 80-89), Other (played but not in Top 50)
-const tierOfGame = (g) => {
-  if (g.topListRank == null) return 'Other';
-  const t = g.rating?.total || 0;
-  if (t >= 100) return 'Masterpiece';
-  if (t >= 90)  return 'Amazing';
-  if (t >= 80)  return 'Great';
-  return 'Other';
-};
-
-const TIER_BAND_ORDER = ['Masterpiece', 'Amazing', 'Great', 'Other'];
-const blankBands = () => ({ Masterpiece: 0, Amazing: 0, Great: 0, Other: 0 });
-
-const computeStats = (games) => {
-  const played = games.filter(g => g.state === 'played');
-  const rated = played.filter(g => g.rating && g.rating.total != null);
-  const top50 = games.filter(g => g.topListRank != null);
-
-  // BY YEAR (2017 onward) — stacked tier counts
-  const yearMap = {};
-  played.forEach(g => {
-    const y = primaryYear(g);
-    if (!y || y < 2017) return;
-    if (!yearMap[y]) yearMap[y] = { label: String(y), segments: blankBands(), total: 0 };
-    yearMap[y].segments[tierOfGame(g)]++;
-    yearMap[y].total++;
-  });
-  const byYearTiers = Object.values(yearMap)
-    .sort((a, b) => parseInt(b.label, 10) - parseInt(a.label, 10));
-
-  // BY PLATFORM — same stacked-tier shape, sorted by total desc
-  const platformMap = {};
-  played.forEach(g => {
-    const p = primaryPlatform(g);
-    if (!p) return;
-    if (!platformMap[p]) platformMap[p] = { label: p, segments: blankBands(), total: 0 };
-    platformMap[p].segments[tierOfGame(g)]++;
-    platformMap[p].total++;
-  });
-  const byPlatformTiers = Object.values(platformMap).sort((a, b) => b.total - a.total);
-
-  // TOP FRANCHISES — group played games by franchise, surface counts +
-  // avg score + masterpiece count. Thumbnail picks the highest-scored game
-  // that has a cover, falling back to the most-recent game.
-  const franchiseMap = {};
-  played.forEach(g => {
-    const f = franchiseOf(g);
-    if (!f) return;
-    if (!franchiseMap[f]) {
-      franchiseMap[f] = { label: f, count: 0, sumScore: 0, ratedCount: 0, masterpieces: 0, games: [] };
-    }
-    const row = franchiseMap[f];
-    row.count++;
-    row.games.push(g);
-    if (g.rating?.total != null) {
-      row.sumScore += g.rating.total;
-      row.ratedCount++;
-      if (g.rating.total >= 100) row.masterpieces++;
-    }
-  });
-  Object.values(franchiseMap).forEach(row => {
-    const withCover = row.games.filter(g => effectiveCover(g));
-    const pool = withCover.length > 0 ? withCover : row.games;
-    pool.sort((a, b) =>
-      (b.rating?.total || 0) - (a.rating?.total || 0) ||
-      (primaryYear(b) || 0) - (primaryYear(a) || 0)
-    );
-    row.recentGame = pool[0];
-  });
-  // Full franchise list (≥2 games); the component sorts + slices by the
-  // selected mode (number of games vs. top score).
-  const topFranchises = Object.values(franchiseMap)
-    .filter(f => f.count >= 2) // single-game "franchises" aren't franchises
-    .map(f => ({ ...f, avgScore: f.ratedCount > 0 ? f.sumScore / f.ratedCount : null }));
-
-  // PREDICTIVENESS — for each rubric category, the lift in avg score
-  // among Masterpieces vs. the rest of the Top 50. Positive = the category
-  // distinguishes Masterpieces; ~0 = no signal; negative = anti-signal.
-  const masterpieces = top50.filter(g => (g.rating?.total || 0) >= 100);
-  const otherTop50 = top50.filter(g => (g.rating?.total || 0) < 100);
-  const predictiveness = {};
-  CATEGORIES.forEach(c => {
-    if (masterpieces.length === 0 || otherTop50.length === 0) {
-      predictiveness[c.key] = 0;
-      return;
-    }
-    const masterAvg = masterpieces.reduce((acc, g) => acc + (g.rating[c.key] || 0), 0) / masterpieces.length;
-    const otherAvg  = otherTop50.reduce((acc, g) => acc + (g.rating[c.key] || 0), 0) / otherTop50.length;
-    predictiveness[c.key] = masterAvg - otherAvg;
-  });
-
-  // Completion stats (story / platinum / replayed)
-  const completion = { story: 0, platinum: 0, replayed: 0 };
-  rated.forEach(g => {
-    if (g.completion?.story)    completion.story++;
-    if (g.completion?.platinum) completion.platinum++;
-    if (g.completion?.replayed) completion.replayed++;
-  });
-
-  const totalPlayed = played.length;
-  const totalRated = rated.length;
-  const totalHours = games
-    .filter(g => g.rawgPlaytime && (g.state === 'played' || g.state === 'playing'))
-    .reduce((acc, g) => acc + (g.rawgPlaytime || 0), 0);
-
-  return {
-    totalPlayed, totalRated, totalHours,
-    byYearTiers, byPlatformTiers,
-    topFranchises,
-    predictiveness,
-    masterpiecesCount: masterpieces.length,
-    otherTop50Count: otherTop50.length,
-    completion,
-  };
-};
 
 // -----------------------------------------------------------------------------
 // Small UI bits
