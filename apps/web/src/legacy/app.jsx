@@ -9,7 +9,6 @@ import {
   STORAGE_KEY,
 } from '../data/config.js';
 import { CATEGORIES, STATE_META, TIER_COLOR_FOR_LABEL } from '../data/constants.js';
-import { FRANCHISE_RULES } from '../data/franchises.js';
 import { PLATFORM_PRIORITY, RAWG_PLATFORM_IDS } from '../data/platforms.js';
 import { SEED_GAMES } from '../data/seed.js';
 import {
@@ -58,6 +57,12 @@ import {
   primaryYear,
   shortPlatform,
 } from '../utils/gameHelpers.ts';
+import {
+  TIER_BAND_ORDER,
+  computeStats,
+  franchiseOf,
+  tierOfGame,
+} from '../utils/stats.ts';
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -3414,129 +3419,6 @@ const StatsScreen = ({ games, tab, onTabChange }) => {
 // -----------------------------------------------------------------------------
 // Franchise rules — title-prefix regexes that bucket games into series. Order
 // matters: more specific patterns first so e.g. "Mario Kart" wins over "Mario".
-const franchiseOf = (game) => {
-  const t = (game.title || '').trim();
-  for (const r of FRANCHISE_RULES) if (r.match.test(t)) return r.label;
-  return null;
-};
-
-// Bucket every played game into one of four bands:
-//   Masterpiece (Top 50 + score ≥100), Amazing (Top 50 + 90-99),
-//   Great (Top 50 + 80-89), Other (played but not in Top 50)
-const tierOfGame = (g) => {
-  if (g.topListRank == null) return 'Other';
-  const t = g.rating?.total || 0;
-  if (t >= 100) return 'Masterpiece';
-  if (t >= 90)  return 'Amazing';
-  if (t >= 80)  return 'Great';
-  return 'Other';
-};
-
-const TIER_BAND_ORDER = ['Masterpiece', 'Amazing', 'Great', 'Other'];
-const blankBands = () => ({ Masterpiece: 0, Amazing: 0, Great: 0, Other: 0 });
-
-const computeStats = (games) => {
-  const played = games.filter(g => g.state === 'played');
-  const rated = played.filter(g => g.rating && g.rating.total != null);
-  const top50 = games.filter(g => g.topListRank != null);
-
-  // BY YEAR (2017 onward) — stacked tier counts
-  const yearMap = {};
-  played.forEach(g => {
-    const y = primaryYear(g);
-    if (!y || y < 2017) return;
-    if (!yearMap[y]) yearMap[y] = { label: String(y), segments: blankBands(), total: 0 };
-    yearMap[y].segments[tierOfGame(g)]++;
-    yearMap[y].total++;
-  });
-  const byYearTiers = Object.values(yearMap)
-    .sort((a, b) => parseInt(b.label, 10) - parseInt(a.label, 10));
-
-  // BY PLATFORM — same stacked-tier shape, sorted by total desc
-  const platformMap = {};
-  played.forEach(g => {
-    const p = primaryPlatform(g);
-    if (!p) return;
-    if (!platformMap[p]) platformMap[p] = { label: p, segments: blankBands(), total: 0 };
-    platformMap[p].segments[tierOfGame(g)]++;
-    platformMap[p].total++;
-  });
-  const byPlatformTiers = Object.values(platformMap).sort((a, b) => b.total - a.total);
-
-  // TOP FRANCHISES — group played games by franchise, surface counts +
-  // avg score + masterpiece count. Thumbnail picks the highest-scored game
-  // that has a cover, falling back to the most-recent game.
-  const franchiseMap = {};
-  played.forEach(g => {
-    const f = franchiseOf(g);
-    if (!f) return;
-    if (!franchiseMap[f]) {
-      franchiseMap[f] = { label: f, count: 0, sumScore: 0, ratedCount: 0, masterpieces: 0, games: [] };
-    }
-    const row = franchiseMap[f];
-    row.count++;
-    row.games.push(g);
-    if (g.rating?.total != null) {
-      row.sumScore += g.rating.total;
-      row.ratedCount++;
-      if (g.rating.total >= 100) row.masterpieces++;
-    }
-  });
-  Object.values(franchiseMap).forEach(row => {
-    const withCover = row.games.filter(g => effectiveCover(g));
-    const pool = withCover.length > 0 ? withCover : row.games;
-    pool.sort((a, b) =>
-      (b.rating?.total || 0) - (a.rating?.total || 0) ||
-      (primaryYear(b) || 0) - (primaryYear(a) || 0)
-    );
-    row.recentGame = pool[0];
-  });
-  // Full franchise list (≥2 games); the component sorts + slices by the
-  // selected mode (number of games vs. top score).
-  const topFranchises = Object.values(franchiseMap)
-    .filter(f => f.count >= 2) // single-game "franchises" aren't franchises
-    .map(f => ({ ...f, avgScore: f.ratedCount > 0 ? f.sumScore / f.ratedCount : null }));
-
-  // PREDICTIVENESS — for each rubric category, the lift in avg score
-  // among Masterpieces vs. the rest of the Top 50. Positive = the category
-  // distinguishes Masterpieces; ~0 = no signal; negative = anti-signal.
-  const masterpieces = top50.filter(g => (g.rating?.total || 0) >= 100);
-  const otherTop50 = top50.filter(g => (g.rating?.total || 0) < 100);
-  const predictiveness = {};
-  CATEGORIES.forEach(c => {
-    if (masterpieces.length === 0 || otherTop50.length === 0) {
-      predictiveness[c.key] = 0;
-      return;
-    }
-    const masterAvg = masterpieces.reduce((acc, g) => acc + (g.rating[c.key] || 0), 0) / masterpieces.length;
-    const otherAvg  = otherTop50.reduce((acc, g) => acc + (g.rating[c.key] || 0), 0) / otherTop50.length;
-    predictiveness[c.key] = masterAvg - otherAvg;
-  });
-
-  // Completion stats (story / platinum / replayed)
-  const completion = { story: 0, platinum: 0, replayed: 0 };
-  rated.forEach(g => {
-    if (g.completion?.story)    completion.story++;
-    if (g.completion?.platinum) completion.platinum++;
-    if (g.completion?.replayed) completion.replayed++;
-  });
-
-  const totalPlayed = played.length;
-  const totalRated = rated.length;
-  const totalHours = games
-    .filter(g => g.rawgPlaytime && (g.state === 'played' || g.state === 'playing'))
-    .reduce((acc, g) => acc + (g.rawgPlaytime || 0), 0);
-
-  return {
-    totalPlayed, totalRated, totalHours,
-    byYearTiers, byPlatformTiers,
-    topFranchises,
-    predictiveness,
-    masterpiecesCount: masterpieces.length,
-    otherTop50Count: otherTop50.length,
-    completion,
-  };
-};
 
 // -----------------------------------------------------------------------------
 // Small UI bits
