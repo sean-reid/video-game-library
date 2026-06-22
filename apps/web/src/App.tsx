@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { PodcastPlayer, type PlayerMode, type PlayingItem } from './components/player/PodcastPlayer.js';
 import { GameDetailScreen, buildNavOrder } from './components/screens/GameDetailScreen.js';
 import { LibraryScreen, type LibrarySection } from './components/screens/LibraryScreen.js';
@@ -8,15 +8,24 @@ import { AddGameSheet } from './components/sheets/AddGameSheet.js';
 import { BackupSheet } from './components/sheets/BackupSheet.js';
 import { EditGameSheet } from './components/sheets/EditGameSheet.js';
 import type { TopTab } from './components/navigation/TitleNav.js';
+import { useGames } from './hooks/useGames.js';
 import { useGistAutoSync } from './hooks/useGistAutoSync.js';
 import { useRawgEnrichment } from './hooks/useRawgEnrichment.js';
 import { loadGistConfig } from './services/gistApi.js';
 import { exportLibrary, importLibrary } from './services/libraryIO.js';
-import { loadGames, rerankTop50, saveGames } from './services/libraryStorage.js';
-import type { Completion, Game, GistSyncConfig, PodcastBundle, PodcastEpisode } from './types/index.js';
+import type { GistSyncConfig, PodcastBundle, PodcastEpisode } from './types/index.js';
 
 export function App() {
-  const [games, setGames] = useState<Game[]>(loadGames);
+  const {
+    games,
+    setGames,
+    addGame,
+    updateGame,
+    applyPatchToGame,
+    toggleCompletion,
+    deleteGame,
+    reorderRumored,
+  } = useGames();
   const [tab, setTab] = useState<TopTab>('library');
   const [section, setSection] = useState<LibrarySection>('top50');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -37,65 +46,21 @@ export function App() {
   };
 
   useGistAutoSync(games, gistConfig, setGistConfig);
+  const enrichStatus = useRawgEnrichment(games, applyPatchToGame);
 
   const existingIds = useMemo(() => new Set(games.map((g) => g.id)), [games]);
-  const addGame = (g: Game): void => {
-    setGames((prev) => rerankTop50([...prev, g]));
-  };
-  const updateGame = (g: Game): void => {
-    setGames((prev) => rerankTop50(prev.map((x) => (x.id === g.id ? g : x))));
-  };
-  const applyPatchToGame = (id: string, patch: Partial<Game>): void => {
-    setGames((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-  };
-  const toggleCompletion = (id: string, key: keyof Completion): void => {
-    setGames((prev) =>
-      prev.map((g) =>
-        g.id === id
-          ? {
-              ...g,
-              completion: {
-                story: false,
-                platinum: false,
-                replayed: false,
-                ...(g.completion ?? {}),
-                [key]: !g.completion?.[key],
-              },
-            }
-          : g,
-      ),
-    );
-  };
-  const deleteGame = (id: string): void => {
-    setGames((prev) => rerankTop50(prev.filter((x) => x.id !== id)));
-    if (selectedId === id) setSelectedId(null);
-  };
   const editGame = useMemo(
     () => games.find((g) => g.id === editId) ?? null,
     [games, editId],
   );
+  const selected = useMemo(
+    () => games.find((g) => g.id === selectedId) ?? null,
+    [games, selectedId],
+  );
 
-  const reorderRumored = (id: string, direction: number): void => {
-    setGames((prev) => {
-      const idx = prev.findIndex((g) => g.id === id);
-      if (idx < 0) return prev;
-      let neighborIdx = idx + direction;
-      while (
-        neighborIdx >= 0 &&
-        neighborIdx < prev.length &&
-        prev[neighborIdx]?.state !== 'rumored'
-      ) {
-        neighborIdx += direction;
-      }
-      if (neighborIdx < 0 || neighborIdx >= prev.length) return prev;
-      const next = [...prev];
-      const a = next[idx];
-      const b = next[neighborIdx];
-      if (!a || !b) return prev;
-      next[idx] = b;
-      next[neighborIdx] = a;
-      return next;
-    });
+  const handleDeleteGame = (id: string): void => {
+    deleteGame(id);
+    if (selectedId === id) setSelectedId(null);
   };
 
   const savedScrollsRef = useRef<{ y: number; rows: Record<string, number> } | null>(null);
@@ -108,17 +73,6 @@ export function App() {
     savedScrollsRef.current = { y: window.scrollY, rows };
     setSelectedId(id);
   };
-
-  useEffect(() => {
-    saveGames(games);
-  }, [games]);
-
-  const enrichStatus = useRawgEnrichment(games, applyPatchToGame);
-
-  const selected = useMemo(
-    () => games.find((g) => g.id === selectedId) ?? null,
-    [games, selectedId],
-  );
 
   const navOrder = useMemo(() => buildNavOrder(games, section), [games, section]);
   const navIdx = selectedId ? navOrder.indexOf(selectedId) : -1;
@@ -209,7 +163,7 @@ export function App() {
           setEditId(null);
         }}
         onSave={updateGame}
-        onDelete={deleteGame}
+        onDelete={handleDeleteGame}
       />
       <BackupSheet
         open={backupOpen}
