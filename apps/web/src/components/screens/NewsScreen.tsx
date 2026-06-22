@@ -94,7 +94,7 @@ function RecentReleaseBanner({
       if (!ed) return false;
       if (ed === 'Available') return true;
       const md = /^(\d{1,2})\/(\d{1,2})$/.exec(ed);
-      if (md && md[1] && md[2]) {
+      if (md?.[1] && md[2]) {
         const date = new Date(
           now.getFullYear(),
           parseInt(md[1], 10) - 1,
@@ -329,7 +329,7 @@ export function NewsScreen({
       setPull(Math.min(dy * 0.5, 80));
     }
   };
-  const onTouchEnd = async (): Promise<void> => {
+  const onTouchEnd = (): void => {
     if (pull > 50) {
       setRefreshing(true);
       try {
@@ -352,9 +352,7 @@ export function NewsScreen({
       className="screen-enter pt-safe pb-32"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
-      onTouchEnd={() => {
-        void onTouchEnd();
-      }}
+      onTouchEnd={onTouchEnd}
     >
       {(pull > 8 || refreshing) && (
         <div
