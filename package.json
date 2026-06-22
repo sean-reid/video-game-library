@@ -17,12 +17,14 @@
     "test:e2e": "pnpm --filter @vgl/web test:e2e",
     "typecheck": "pnpm -r typecheck",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check:bundle-size": "node scripts/check-bundle-size.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^9.1.0",
+    "globals": "^17.7.0",
     "prettier": "^3.4.2",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.19.1"

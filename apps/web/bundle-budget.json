@@ -1,0 +1,12 @@
+{
+  "comment": "Budgets are RAW bytes for individual JS chunks under apps/web/dist/assets/, plus an aggregate cap. Tuned with ~30% headroom over the as-shipped sizes so normal feature growth doesn't trip the gate, while a real regression (re-eager-loading a screen, pulling in a heavy dep) fails CI loudly. Update intentionally when a chunk grows for a good reason; the diff stays a one-line review.",
+  "chunks": {
+    "index": 300000,
+    "NewsScreen": 65000,
+    "StatsScreen": 20000,
+    "GameDetailScreen": 14000,
+    "PodcastPlayer": 16000,
+    "seed": 35000
+  },
+  "totalJs": 420000
+}
