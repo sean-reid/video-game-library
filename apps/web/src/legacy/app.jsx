@@ -4,10 +4,7 @@ import {
   DISMISSED_KEY,
   GIST_KEY,
   NEWS_STALE_MS,
-  RAWG_BASE,
-  RAWG_KEY,
   READ_KEY,
-  REC_METACRITIC_FLOOR,
   RECS_KEY,
   RECS_TTL_MS,
   STORAGE_KEY,
@@ -30,6 +27,12 @@ import {
   RAWG_PLATFORM_IDS,
 } from '../data/platforms.js';
 import { SEED_GAMES } from '../data/seed.js';
+import {
+  fetchRawgDetail,
+  fetchRecommendations,
+  searchRawg,
+  yearOf,
+} from '../services/rawgApi.ts';
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -174,62 +177,8 @@ const rerankTop50 = (games) => {
   );
 };
 
-// =============================================================================
-// RAWG INTEGRATION
-// NOTE: Key is inline because this is a personal app on public GitHub Pages.
-// Worst case if scraped: someone burns your 20k/month free quota → rotate.
-// If/when that matters, move behind a Cloudflare Worker.
-// =============================================================================
-const yearOf = (released) => {
-  if (!released) return null;
-  const y = parseInt(String(released).slice(0, 4), 10);
-  return isNaN(y) ? null : y;
-};
-
-// Manual cover overrides for games RAWG mis-matched or that need a better image.
-// Applied at READ time, so no re-enrichment of localStorage is required.
-// Resolve the effective cover URL — manual override beats RAWG match
+// Resolve the effective cover URL — manual override beats RAWG match.
 const effectiveCover = (game) => COVER_OVERRIDES[game.id]?.coverImage || game.coverImage || null;
-
-// Search RAWG for a game by title, pick best match (closest year if available).
-// Rejects matches whose release year is >5 years off from the target year —
-// this prevents unannounced sequels like "Star Fox 2026" from matching the
-// 1993 SNES Star Fox.
-const YEAR_MATCH_TOLERANCE = 5;
-const searchRawg = async (title, year) => {
-  const q = encodeURIComponent(title);
-  const url = `${RAWG_BASE}/games?key=${RAWG_KEY}&search=${q}&page_size=5&search_precise=true`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`RAWG ${res.status}`);
-  const data = await res.json();
-  if (!data.results?.length) return null;
-
-  let results = [...data.results];
-  if (year) {
-    results.sort((a, b) => {
-      const ay = yearOf(a.released);
-      const by = yearOf(b.released);
-      const ad = ay ? Math.abs(ay - year) : 999;
-      const bd = by ? Math.abs(by - year) : 999;
-      return ad - bd;
-    });
-    const best = results[0];
-    const bestYear = yearOf(best.released);
-    if (bestYear && Math.abs(bestYear - year) > YEAR_MATCH_TOLERANCE) {
-      return null; // too far apart, almost certainly a different game
-    }
-  }
-  return results[0];
-};
-
-// Fetch RAWG detail for a single game (developers + publishers are NOT in
-// the search response — we need this endpoint to get them).
-const fetchRawgDetail = async (rawgId) => {
-  const url = `${RAWG_BASE}/games/${rawgId}?key=${RAWG_KEY}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`RAWG detail ${res.status}`);
-  return res.json();
-};
 
 // =============================================================================
 // RECOMMENDATIONS — "For you" engine
@@ -329,72 +278,6 @@ const enrichTop50Detail = async (games, applyPatch) => {
   return targets.length;
 };
 
-// Normalize a RAWG game record into our compact candidate shape (kept slim
-// because we cache it in localStorage).
-const candidateFromRawg = (r) => ({
-  rawgId: r.id,
-  slug: r.slug,
-  title: r.name,
-  year: yearOf(r.released),
-  released: r.released || null,
-  coverImage: r.background_image || null,
-  platforms: (r.platforms || []).map(p => p.platform?.name).filter(Boolean),
-  genres: (r.genres || []).map(genre => genre.slug).filter(Boolean),
-  metacritic: r.metacritic || null,
-  playtime: r.playtime || null,
-});
-
-// Score a candidate against the user's taste profile.
-const scoreCandidate = (c, profile) => {
-  let s = (c.metacritic || 0) / 5; // Metacritic is the strongest single signal
-  c.platforms.forEach(p => {
-    const sp = shortPlatform(p);
-    if (profile.platformWeights[sp]) s += profile.platformWeights[sp] / 50;
-  });
-  c.genres.forEach(g => {
-    if (profile.genreWeights[g]) s += profile.genreWeights[g] / 50;
-  });
-  return s;
-};
-
-// Query RAWG with a few different filter sets and merge — gives variety
-// rather than only Studio X's whole catalog.
-const fetchRecommendations = async (profile) => {
-  const platformIds = profile.topPlatforms
-    .map(p => RAWG_PLATFORM_IDS[p])
-    .filter(Boolean)
-    .join(',');
-  const baseParams = `key=${RAWG_KEY}&metacritic=${REC_METACRITIC_FLOOR},100&page_size=20`
-    + (platformIds ? `&platforms=${platformIds}` : '');
-
-  const queries = [];
-  if (profile.topDevelopers.length) {
-    queries.push(`${RAWG_BASE}/games?${baseParams}&developers=${profile.topDevelopers.join(',')}&ordering=-metacritic`);
-  }
-  if (profile.topPublishers.length) {
-    queries.push(`${RAWG_BASE}/games?${baseParams}&publishers=${profile.topPublishers.join(',')}&ordering=-metacritic`);
-  }
-  if (profile.topGenres.length) {
-    queries.push(`${RAWG_BASE}/games?${baseParams}&genres=${profile.topGenres.join(',')}&ordering=-rating`);
-  }
-  if (queries.length === 0) return [];
-
-  const buckets = await Promise.all(queries.map(async (url) => {
-    try {
-      const res = await fetch(url);
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.results || [];
-    } catch { return []; }
-  }));
-
-  const seen = new Map();
-  buckets.flat().forEach(r => { if (!seen.has(r.id)) seen.set(r.id, r); });
-  const candidates = [...seen.values()].map(candidateFromRawg);
-  candidates.forEach(c => { c._score = scoreCandidate(c, profile); });
-  candidates.sort((a, b) => b._score - a._score);
-  return candidates.slice(0, 30);
-};
 
 // =============================================================================
 // ICONS
