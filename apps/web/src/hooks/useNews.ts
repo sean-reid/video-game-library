@@ -8,7 +8,10 @@ export interface UseNewsResult {
   news: CachedNews | null;
   loading: boolean;
   error: unknown;
-  refresh: (forceFresh?: boolean) => void;
+  // Returns the in-flight promise so callers (e.g. pull-to-refresh) can
+  // await it before clearing their own "refreshing" indicator. Resolves
+  // when the fetch settles, whether it succeeded or surfaced an error.
+  refresh: (forceFresh?: boolean) => Promise<void>;
   lastFetched: number | null;
 }
 
@@ -59,9 +62,7 @@ export function useNews(): UseNewsResult {
     news,
     loading,
     error,
-    refresh: (force?: boolean) => {
-      void refreshRef.current(force);
-    },
+    refresh: (force?: boolean) => refreshRef.current(force),
     lastFetched,
   };
 }

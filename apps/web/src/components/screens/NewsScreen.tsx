@@ -314,11 +314,9 @@ export function NewsScreen({ games, onSelect, tab, onTabChange, onPlayEpisode }:
   const onTouchEnd = (): void => {
     if (pull > 50) {
       setRefreshing(true);
-      try {
-        refresh(true);
-      } finally {
+      void refresh(true).finally(() => {
         setRefreshing(false);
-      }
+      });
     }
     setPull(0);
     touchStartY.current = null;

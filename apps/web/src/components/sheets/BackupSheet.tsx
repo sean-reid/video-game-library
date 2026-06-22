@@ -251,7 +251,7 @@ export function BackupSheet({
                       ? timeAgo(new Date(stored.lastSyncedAt).toISOString())
                       : 'never'}
                   </span>
-                  . Saves 5 sec after every change once unlocked.
+                  . Auto-saves 5 seconds after any change while unlocked.
                 </div>
 
                 {isLocked && (
