@@ -1,28 +1,59 @@
 import { GIST_KEY } from '../data/config.js';
-import type { Game, GistSyncConfig } from '../types/index.js';
+import type { Game, StoredGistConfig } from '../types/index.js';
 
-// Your library JSON lives in a private gist on YOUR GitHub account.
-// Token + gist ID sit in localStorage today; encryption-at-rest happens in
-// Phase 8.5. Nothing leaves the device except the writes to your own GitHub.
+// Your library JSON lives in a private gist on YOUR GitHub account. The PAT
+// is AES-GCM encrypted (passphrase-derived key, see services/cryptoStorage.ts)
+// before it lands in localStorage; the cleartext token only exists in memory
+// while the vault is unlocked. Nothing leaves the device except the writes
+// to your own GitHub.
 
 export const GIST_FILENAME = 'video-game-library.json';
 const GH_API = 'https://api.github.com';
 
-export function loadGistConfig(): GistSyncConfig | null {
-  try {
-    const raw = localStorage.getItem(GIST_KEY);
-    if (raw) return JSON.parse(raw) as GistSyncConfig;
-  } catch {
-    /* corrupted entry — fall through to null */
-  }
-  return null;
+interface LegacyGistConfig {
+  token?: string;
+  gistId?: string;
+  gistUrl?: string;
+  lastSyncedAt?: number;
 }
 
-export function saveGistConfig(config: GistSyncConfig): void {
+// Returns the stored config when it matches the current v2 (encrypted) shape.
+// A legacy v1 config (cleartext token) is treated as absent so the user is
+// prompted to reconnect with a passphrase rather than silently downgrading
+// the security model.
+export function loadGistConfig(): StoredGistConfig | null {
+  try {
+    const raw = localStorage.getItem(GIST_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredGistConfig | LegacyGistConfig;
+    if ('version' in parsed && parsed.version === 2 && parsed.encrypted) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveGistConfig(config: StoredGistConfig): void {
   try {
     localStorage.setItem(GIST_KEY, JSON.stringify(config));
   } catch {
     /* quota or disabled storage — silently drop */
+  }
+}
+
+// True when the previous (v1) cleartext-token config is still in localStorage
+// and the user has not yet reconnected under the encrypted v2 shape. UI uses
+// this to surface a "reconnect to encrypt your token" banner.
+export function hasLegacyGistConfig(): boolean {
+  try {
+    const raw = localStorage.getItem(GIST_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as StoredGistConfig | LegacyGistConfig;
+    return !('version' in parsed) || parsed.version !== 2;
+  } catch {
+    return false;
   }
 }
 

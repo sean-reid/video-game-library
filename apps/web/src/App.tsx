@@ -10,11 +10,11 @@ import { EditGameSheet } from './components/sheets/EditGameSheet.js';
 import type { TopTab } from './components/navigation/TitleNav.js';
 import { useGames } from './hooks/useGames.js';
 import { useGistAutoSync } from './hooks/useGistAutoSync.js';
+import { useGistVault } from './hooks/useGistVault.js';
 import { usePodcastPlayer } from './hooks/usePodcastPlayer.js';
 import { useRawgEnrichment } from './hooks/useRawgEnrichment.js';
-import { loadGistConfig } from './services/gistApi.js';
+import { hasLegacyGistConfig } from './services/gistApi.js';
 import { exportLibrary, importLibrary } from './services/libraryIO.js';
-import type { GistSyncConfig } from './types/index.js';
 
 export function App() {
   const {
@@ -33,11 +33,12 @@ export function App() {
   const [addOpen, setAddOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [backupOpen, setBackupOpen] = useState(false);
-  const [gistConfig, setGistConfig] = useState<GistSyncConfig | null>(loadGistConfig);
+  const vault = useGistVault();
+  const [hadLegacyConfig] = useState(hasLegacyGistConfig);
 
   const player = usePodcastPlayer();
 
-  useGistAutoSync(games, gistConfig, setGistConfig);
+  useGistAutoSync(games, vault.unlocked, vault.touchSyncedAt);
   const enrichStatus = useRawgEnrichment(games, applyPatchToGame);
 
   const existingIds = useMemo(() => new Set(games.map((g) => g.id)), [games]);
@@ -170,8 +171,8 @@ export function App() {
         }}
         games={games}
         setGames={setGames}
-        gistConfig={gistConfig}
-        setGistConfig={setGistConfig}
+        vault={vault}
+        hadLegacyConfig={hadLegacyConfig}
       />
 
       <PodcastPlayer

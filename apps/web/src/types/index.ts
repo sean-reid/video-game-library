@@ -125,9 +125,24 @@ export interface ArticleResponse {
   sourceUrl: string;
 }
 
-// GitHub Gist sync state. Token lives in localStorage today; encrypted at
-// rest in Phase 8.
-export interface GistSyncConfig {
+// GitHub Gist sync state. The PAT is encrypted at rest with a passphrase-
+// derived key; `encrypted` is the only persisted shape, and the token only
+// ever exists in memory after the user unlocks.
+export interface EncryptedBlob {
+  ciphertext: string;
+  salt: string;
+  iv: string;
+}
+
+export interface StoredGistConfig {
+  version: 2;
+  encrypted: EncryptedBlob;
+  gistId: string;
+  gistUrl?: string;
+  lastSyncedAt?: number;
+}
+
+export interface UnlockedGistConfig {
   token: string;
   gistId: string;
   gistUrl?: string;
