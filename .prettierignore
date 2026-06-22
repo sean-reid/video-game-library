@@ -10,16 +10,3 @@ playwright-report
 pnpm-lock.yaml
 *.min.js
 *.min.css
-
-# Legacy files preserved unmodified during modernization (rewritten in docs phase)
-index.html
-worker.js
-sw.js
-NOTES.md
-README.md
-
-# Bundled-but-not-rewritten copy of the original single-file app
-apps/web/src/legacy/**
-
-# Verbatim seed data extracted from the legacy bundle
-apps/web/src/data/seed.js
