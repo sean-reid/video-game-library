@@ -9,7 +9,7 @@ interface ChannelData {
   error?: string;
 }
 
-export async function fetchAllPodcasts(): Promise<PodcastBundle[]> {
+export async function fetchAllPodcasts(opts: { debug: boolean }): Promise<PodcastBundle[]> {
   // 1) Resolve each unique handle to a channel ID.
   const handleToChannelId = new Map<string, string | null>();
   const uniqueHandles = [...new Set(PODCAST_SOURCES.map((p) => p.youtubeHandle).filter(Boolean))];
@@ -63,7 +63,7 @@ export async function fetchAllPodcasts(): Promise<PodcastBundle[]> {
     const data = channelData.get(channelId);
     if (!data || data.error) {
       baseShape.error = data?.error ?? 'No videos fetched';
-      baseShape._debug = { channelId };
+      if (opts.debug) baseShape._debug = { channelId };
       return baseShape;
     }
     const videos = data.videos ?? [];
@@ -90,13 +90,15 @@ export async function fetchAllPodcasts(): Promise<PodcastBundle[]> {
       description: v.description.slice(0, 4000),
     }));
 
-    baseShape._debug = {
-      channelId,
-      patterns,
-      totalVideos: videos.length,
-      matchedCount: matching.length,
-      recentVideoTitles: videos.slice(0, 10).map((v) => v.title),
-    };
+    if (opts.debug) {
+      baseShape._debug = {
+        channelId,
+        patterns,
+        totalVideos: videos.length,
+        matchedCount: matching.length,
+        recentVideoTitles: videos.slice(0, 10).map((v) => v.title),
+      };
+    }
     return baseShape;
   });
 }
